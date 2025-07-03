@@ -17,6 +17,7 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
+  bool _hasNavigated = false;
 
   @override
   void initState() {
@@ -45,38 +46,51 @@ class _SplashScreenState extends State<SplashScreen>
     
     _animationController.forward();
     
-    // Request location permission during splash
-    _requestLocationPermission();
-    
-    // Navigate to home page after 3 seconds
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const HomePage()),
-        );
-      }
-    });
+    // Start location permission flow after animation
+    _waitForLocationPermission();
   }
   
-  Future<void> _requestLocationPermission() async {
-    AppLogger.logInfo('Requesting location permission during splash...');
+  Future<void> _waitForLocationPermission() async {
+    AppLogger.logInfo('Waiting for location permission...');
     
-    // Small delay to let splash animation start
-    await Future.delayed(const Duration(milliseconds: 500));
+    // Wait for animation to complete
+    await Future.delayed(const Duration(seconds: 2));
     
-    try {
-      final hasPermission = await LocationService.instance.isLocationPermissionGranted();
-      
-      if (!hasPermission) {
-        AppLogger.logInfo('Location permission not granted, will show dialog later');
-        // Don't show dialog during splash, let the user see the UI first
-      } else {
-        AppLogger.logSuccess('Location permission already granted');
-      }
-    } catch (e) {
-      AppLogger.logError('Error checking location permission: $e');
-    }
+    if (!mounted) return;
+    
+    // Show location permission dialog and wait for user response
+    await _showLocationPermissionDialog();
+  }
+
+  Future<void> _showLocationPermissionDialog() async {
+    if (!mounted || _hasNavigated) return;
+    
+    AppLogger.logInfo('Showing location permission dialog');
+    
+    // Show permission dialog and wait for user decision
+    await LocationPermissionDialog.show(
+      context: context,
+      onPermissionGranted: () {
+        AppLogger.logSuccess('User granted location permission');
+        _navigateToHome();
+      },
+      onPermissionDenied: () {
+        AppLogger.logInfo('User denied location permission');
+        _navigateToHome();
+      },
+    );
+  }
+
+  void _navigateToHome() {
+    if (_hasNavigated || !mounted) return;
+    
+    _hasNavigated = true;
+    AppLogger.logInfo('Navigating to home screen');
+    
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const HomePage()),
+    );
   }
 
   @override
@@ -162,13 +176,24 @@ class _SplashScreenState extends State<SplashScreen>
               const SizedBox(height: 60),
               FadeTransition(
                 opacity: _fadeAnimation,
-                child: const SizedBox(
-                  width: 30,
-                  height: 30,
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    strokeWidth: 3,
-                  ),
+                child: Column(
+                  children: [
+                    const SizedBox(
+                      width: 30,
+                      height: 30,
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        strokeWidth: 3,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Waiting for location permission...',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white.withOpacity(0.8),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
