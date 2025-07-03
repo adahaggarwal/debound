@@ -31,8 +31,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _loadInitialData() {
-    // Load weather data
-    context.read<WeatherBloc>().add(GetCurrentWeatherEvent());
+    // Load location-based weather data
+    context.read<WeatherBloc>().add(GetLocationWeatherEvent());
     
     // Load news data
     context.read<NewsBloc>().add(GetTopHeadlinesEvent());

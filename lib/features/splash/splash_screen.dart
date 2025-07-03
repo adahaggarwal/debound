@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../weather/presentation/pages/home_page.dart';
+import '../../core/services/location_service.dart';
+import '../../core/utils/app_logger.dart';
+import '../../shared/widgets/location_permission_dialog.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -42,6 +45,9 @@ class _SplashScreenState extends State<SplashScreen>
     
     _animationController.forward();
     
+    // Request location permission during splash
+    _requestLocationPermission();
+    
     // Navigate to home page after 3 seconds
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
@@ -51,6 +57,26 @@ class _SplashScreenState extends State<SplashScreen>
         );
       }
     });
+  }
+  
+  Future<void> _requestLocationPermission() async {
+    AppLogger.logInfo('Requesting location permission during splash...');
+    
+    // Small delay to let splash animation start
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    try {
+      final hasPermission = await LocationService.instance.isLocationPermissionGranted();
+      
+      if (!hasPermission) {
+        AppLogger.logInfo('Location permission not granted, will show dialog later');
+        // Don't show dialog during splash, let the user see the UI first
+      } else {
+        AppLogger.logSuccess('Location permission already granted');
+      }
+    } catch (e) {
+      AppLogger.logError('Error checking location permission: $e');
+    }
   }
 
   @override

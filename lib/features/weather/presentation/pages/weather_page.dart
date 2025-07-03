@@ -7,6 +7,8 @@ import '../../../../shared/widgets/loading_widget.dart';
 import '../../../../shared/widgets/error_widget.dart';
 import '../../../../shared/widgets/custom_bottom_sheet.dart';
 import '../../../../core/utils/app_logger.dart';
+import '../../../../shared/widgets/location_permission_dialog.dart';
+import '../../../../core/services/location_service.dart';
 
 class WeatherPage extends StatefulWidget {
   const WeatherPage({super.key});
@@ -33,10 +35,34 @@ class _WeatherPageState extends State<WeatherPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.location_on),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Location feature coming soon!')),
-              );
+            onPressed: () async {
+              AppLogger.logInfo('Location button pressed');
+              
+              // Check if location permission is granted
+              final hasPermission = await LocationService.instance.isLocationPermissionGranted();
+              
+              if (hasPermission) {
+                // Refresh with current location
+                context.read<WeatherBloc>().add(GetLocationWeatherEvent());
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Refreshing location weather...')),
+                );
+              } else {
+                // Show permission dialog
+                LocationPermissionDialog.show(
+                  context: context,
+                  onPermissionGranted: () {
+                    context.read<WeatherBloc>().add(GetLocationWeatherEvent());
+                  },
+                  onPermissionDenied: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Location permission is needed for local weather'),
+                      ),
+                    );
+                  },
+                );
+              }
             },
           ),
           IconButton(

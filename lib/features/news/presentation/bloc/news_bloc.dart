@@ -1,5 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
+import '../../../../core/network/network_client.dart';
+import '../../../../core/utils/app_logger.dart';
 
 // Events
 abstract class NewsEvent extends Equatable {
@@ -10,6 +12,8 @@ abstract class NewsEvent extends Equatable {
 }
 
 class GetTopHeadlinesEvent extends NewsEvent {}
+
+class TestNewsApiEvent extends NewsEvent {}
 
 class GetNewsByCategoryEvent extends NewsEvent {
   final String category;
@@ -90,22 +94,52 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     on<GetNewsByCategoryEvent>(_onGetNewsByCategory);
     on<SearchNewsEvent>(_onSearchNews);
     on<RefreshNewsEvent>(_onRefreshNews);
+    on<TestNewsApiEvent>(_onTestNewsApi);
   }
   
   Future<void> _onGetTopHeadlines(
     GetTopHeadlinesEvent event,
     Emitter<NewsState> emit,
   ) async {
+    AppLogger.logBloc('Getting top headlines...');
     emit(NewsLoadingState());
     
     try {
-      // TODO: Implement actual API call
-      await Future.delayed(const Duration(seconds: 2));
+      AppLogger.logNews('Attempting to fetch top headlines...');
       
+      // Test with real API call
+      final response = await NetworkClient.instance.getTopHeadlines();
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        AppLogger.logSuccess('Top headlines received successfully');
+        AppLogger.logNews('Articles count: ${data['totalResults']}');
+        
+        final articles = <NewsArticle>[];
+        final articlesData = data['articles'] as List;
+        
+        for (final articleData in articlesData) {
+          articles.add(NewsArticle(
+            title: articleData['title'] ?? 'No title',
+            description: articleData['description'] ?? 'No description',
+            url: articleData['url'] ?? '',
+            imageUrl: articleData['urlToImage'],
+            publishedAt: articleData['publishedAt'] ?? DateTime.now().toIso8601String(),
+            source: articleData['source']['name'] ?? 'Unknown',
+          ));
+        }
+        
+        emit(NewsLoadedState(articles));
+      } else {
+        throw Exception('Failed to load news');
+      }
+    } catch (e) {
+      AppLogger.logError('Failed to get top headlines: $e');
+      
+      // Fallback to mock data for UI testing
+      AppLogger.logWarning('Using mock data for UI testing');
       final articles = _getMockArticles();
       emit(NewsLoadedState(articles));
-    } catch (e) {
-      emit(NewsErrorState(e.toString()));
     }
   }
   
@@ -147,7 +181,25 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     RefreshNewsEvent event,
     Emitter<NewsState> emit,
   ) async {
+    AppLogger.logBloc('Refreshing news data...');
     add(GetTopHeadlinesEvent());
+  }
+  
+  Future<void> _onTestNewsApi(
+    TestNewsApiEvent event,
+    Emitter<NewsState> emit,
+  ) async {
+    AppLogger.logBloc('Testing News API...');
+    emit(NewsLoadingState());
+    
+    try {
+      await NetworkClient.instance.testApiKeys();
+      AppLogger.logSuccess('News API test completed');
+      add(GetTopHeadlinesEvent());
+    } catch (e) {
+      AppLogger.logError('News API test failed: $e');
+      emit(NewsErrorState('News API test failed: $e'));
+    }
   }
   
   List<NewsArticle> _getMockArticles() {

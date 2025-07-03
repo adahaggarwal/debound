@@ -3,6 +3,7 @@ import 'package:equatable/equatable.dart';
 import '../../../../core/network/network_client.dart';
 import '../../../../core/utils/app_logger.dart';
 import '../../../../core/error/error_handler.dart';
+import '../../../../core/services/location_service.dart';
 
 // Events
 abstract class WeatherEvent extends Equatable {
@@ -13,6 +14,23 @@ abstract class WeatherEvent extends Equatable {
 }
 
 class GetCurrentWeatherEvent extends WeatherEvent {}
+
+class GetLocationWeatherEvent extends WeatherEvent {}
+
+class GetWeatherByLocationEvent extends WeatherEvent {
+  final double latitude;
+  final double longitude;
+  final String cityName;
+  
+  const GetWeatherByLocationEvent({
+    required this.latitude,
+    required this.longitude,
+    required this.cityName,
+  });
+  
+  @override
+  List<Object> get props => [latitude, longitude, cityName];
+}
 
 class TestApiKeysEvent extends WeatherEvent {}
 
@@ -69,6 +87,8 @@ class WeatherErrorState extends WeatherState {
 class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
   WeatherBloc() : super(WeatherInitialState()) {
     on<GetCurrentWeatherEvent>(_onGetCurrentWeather);
+    on<GetLocationWeatherEvent>(_onGetLocationWeather);
+    on<GetWeatherByLocationEvent>(_onGetWeatherByLocation);
     on<GetWeatherForecastEvent>(_onGetWeatherForecast);
     on<RefreshWeatherEvent>(_onRefreshWeather);
     on<TestApiKeysEvent>(_onTestApiKeys);
@@ -115,6 +135,90 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
     }
   }
   
+  Future<void> _onGetLocationWeather(
+    GetLocationWeatherEvent event,
+    Emitter<WeatherState> emit,
+  ) async {
+    AppLogger.logBloc('Getting location-based weather...');
+    emit(WeatherLoadingState());
+    
+    try {
+      // Get user's current location
+      final locationData = await LocationService.instance.getCurrentLocationData();
+      
+      if (locationData == null) {
+        AppLogger.logWarning('Could not get location, falling back to default city');
+        add(GetCurrentWeatherEvent());
+        return;
+      }
+      
+      // Get weather for user's location
+      add(GetWeatherByLocationEvent(
+        latitude: locationData.latitude,
+        longitude: locationData.longitude,
+        cityName: locationData.cityName,
+      ));
+    } catch (e) {
+      AppLogger.logError('Failed to get location weather: $e');
+      emit(WeatherErrorState('Failed to get location: $e'));
+    }
+  }
+  
+  Future<void> _onGetWeatherByLocation(
+    GetWeatherByLocationEvent event,
+    Emitter<WeatherState> emit,
+  ) async {
+    AppLogger.logBloc('Getting weather for ${event.cityName}...');
+    emit(WeatherLoadingState());
+    
+    try {
+      AppLogger.logWeather('Fetching weather for coordinates: ${event.latitude}, ${event.longitude}');
+      
+      final response = await NetworkClient.instance.getWeatherByCoordinates(
+        event.latitude, 
+        event.longitude,
+      );
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        AppLogger.logSuccess('Location weather data received successfully');
+        AppLogger.logWeather('Weather: ${data['name']} - ${data['main']['temp']}°C - ${data['weather'][0]['description']}');
+        
+        emit(WeatherLoadedState(
+          city: '${event.cityName} 📍',
+          temperature: (data['main']['temp'] ?? 22.5).toDouble(),
+          condition: data['weather'][0]['main'] ?? 'Clear',
+          description: data['weather'][0]['description'] ?? 'Clear sky',
+        ));
+      } else {
+        throw Exception('Failed to load weather data for location');
+      }
+    } catch (e) {
+      AppLogger.logError('Failed to get weather by location: $e');
+      
+      // Fallback to city name weather
+      AppLogger.logWarning('Trying to get weather by city name: ${event.cityName}');
+      try {
+        final response = await NetworkClient.instance.getWeatherData(event.cityName);
+        
+        if (response.statusCode == 200) {
+          final data = response.data;
+          emit(WeatherLoadedState(
+            city: '${event.cityName} 📍',
+            temperature: (data['main']['temp'] ?? 22.5).toDouble(),
+            condition: data['weather'][0]['main'] ?? 'Clear',
+            description: data['weather'][0]['description'] ?? 'Clear sky',
+          ));
+        } else {
+          throw Exception('Failed to load weather data');
+        }
+      } catch (e2) {
+        AppLogger.logError('Fallback weather request also failed: $e2');
+        emit(WeatherErrorState('Could not get weather for your location'));
+      }
+    }
+  }
+  
   Future<void> _onGetWeatherForecast(
     GetWeatherForecastEvent event,
     Emitter<WeatherState> emit,
@@ -149,7 +253,7 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
     Emitter<WeatherState> emit,
   ) async {
     AppLogger.logBloc('Refreshing weather data...');
-    add(GetCurrentWeatherEvent());
+    add(GetLocationWeatherEvent());
   }
   
   Future<void> _onTestApiKeys(
