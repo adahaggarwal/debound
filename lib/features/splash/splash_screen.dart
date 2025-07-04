@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_colors.dart';
 import '../weather/presentation/pages/home_page.dart';
+import '../../core/services/location_service.dart';
+import '../../core/utils/app_logger.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -14,6 +17,7 @@ class _SplashScreenState extends State<SplashScreen>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
+  bool _hasNavigated = false;
 
   @override
   void initState() {
@@ -42,15 +46,49 @@ class _SplashScreenState extends State<SplashScreen>
     
     _animationController.forward();
     
-    // Navigate to home page after 3 seconds
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const HomePage()),
-        );
-      }
-    });
+    // Handle first-time permission
+    _handleFirstTimePermission();
+  }
+  
+  Future<void> _handleFirstTimePermission() async {
+    AppLogger.logInfo('Checking first-time permission...');
+    
+    // Wait for animation
+    await Future.delayed(const Duration(seconds: 2));
+    
+    if (!mounted) return;
+    
+    // Check if this is first time opening app
+    final prefs = await SharedPreferences.getInstance();
+    final isFirstTime = prefs.getBool('first_time_location') ?? true;
+    
+    if (isFirstTime) {
+      AppLogger.logInfo('First time opening app - requesting location');
+      
+      // Request location permission (system dialog will show)
+      final granted = await LocationService.instance.requestLocationPermission();
+      
+      // Mark as not first time
+      await prefs.setBool('first_time_location', false);
+      
+      AppLogger.logInfo('Permission result: $granted');
+    } else {
+      AppLogger.logInfo('Not first time - skipping permission request');
+    }
+    
+    _navigateToHome();
+  }
+
+  void _navigateToHome() {
+    if (_hasNavigated || !mounted) return;
+    
+    _hasNavigated = true;
+    AppLogger.logInfo('Navigating to home screen');
+    
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const HomePage()),
+    );
   }
 
   @override
@@ -136,13 +174,24 @@ class _SplashScreenState extends State<SplashScreen>
               const SizedBox(height: 60),
               FadeTransition(
                 opacity: _fadeAnimation,
-                child: const SizedBox(
-                  width: 30,
-                  height: 30,
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    strokeWidth: 3,
-                  ),
+                child: Column(
+                  children: [
+                    const SizedBox(
+                      width: 30,
+                      height: 30,
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        strokeWidth: 3,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Setting up your experience...',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white.withOpacity(0.8),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
