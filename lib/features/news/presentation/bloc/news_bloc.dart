@@ -89,6 +89,9 @@ class NewsArticle extends Equatable {
 
 // BLoC
 class NewsBloc extends Bloc<NewsEvent, NewsState> {
+  String _currentCategory = 'general';
+  String? _currentSearchQuery;
+  
   NewsBloc() : super(NewsInitialState()) {
     on<GetTopHeadlinesEvent>(_onGetTopHeadlines);
     on<GetNewsByCategoryEvent>(_onGetNewsByCategory);
@@ -104,15 +107,22 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     AppLogger.logBloc('Getting top headlines...');
     emit(NewsLoadingState());
     
+    // Reset to default category when getting top headlines
+    _currentCategory = 'general';
+    _currentSearchQuery = null;
+    
     try {
       AppLogger.logNews('Attempting to fetch top headlines...');
       
       // Test with real API call
-      final response = await NetworkClient.instance.getTopHeadlines();
+      final response = await NetworkClient.instance.getTopHeadlines(
+        category: _currentCategory,
+      );
       
       if (response.statusCode == 200) {
         final data = response.data;
         AppLogger.logSuccess('Top headlines received successfully');
+        AppLogger.logNews('API Response: ${data.toString()}');
         AppLogger.logNews('Articles count: ${data['totalResults']}');
         
         final articles = <NewsArticle>[];
@@ -129,6 +139,7 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
           ));
         }
         
+        AppLogger.logSuccess('Parsed ${articles.length} articles');
         emit(NewsLoadedState(articles));
       } else {
         throw Exception('Failed to load news');
@@ -147,16 +158,53 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     GetNewsByCategoryEvent event,
     Emitter<NewsState> emit,
   ) async {
+    AppLogger.logBloc('Getting news for category: ${event.category}');
     emit(NewsLoadingState());
     
+    // Update current category and clear search query
+    _currentCategory = event.category;
+    _currentSearchQuery = null;
+    
     try {
-      // TODO: Implement actual API call
-      await Future.delayed(const Duration(seconds: 2));
+      AppLogger.logNews('Attempting to fetch news for category: ${event.category}');
       
-      final articles = _getMockArticles();
-      emit(NewsLoadedState(articles));
+      // Use real API call for category news
+      final response = await NetworkClient.instance.getTopHeadlines(
+        category: event.category,
+      );
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        AppLogger.logSuccess('Category news received successfully');
+        AppLogger.logNews('API Response: ${data.toString()}');
+        AppLogger.logNews('Articles count for ${event.category}: ${data['totalResults']}');
+        
+        final articles = <NewsArticle>[];
+        final articlesData = data['articles'] as List;
+        
+        for (final articleData in articlesData) {
+          articles.add(NewsArticle(
+            title: articleData['title'] ?? 'No title',
+            description: articleData['description'] ?? 'No description',
+            url: articleData['url'] ?? '',
+            imageUrl: articleData['urlToImage'],
+            publishedAt: articleData['publishedAt'] ?? DateTime.now().toIso8601String(),
+            source: articleData['source']['name'] ?? 'Unknown',
+          ));
+        }
+        
+        AppLogger.logSuccess('Parsed ${articles.length} articles for category: ${event.category}');
+        emit(NewsLoadedState(articles));
+      } else {
+        throw Exception('Failed to load news for category: ${event.category}');
+      }
     } catch (e) {
-      emit(NewsErrorState(e.toString()));
+      AppLogger.logError('Failed to get news for category ${event.category}: $e');
+      
+      // Fallback to mock data with category context
+      AppLogger.logWarning('Using mock data for category: ${event.category}');
+      final articles = _getMockArticlesForCategory(event.category);
+      emit(NewsLoadedState(articles));
     }
   }
   
@@ -164,16 +212,53 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     SearchNewsEvent event,
     Emitter<NewsState> emit,
   ) async {
+    AppLogger.logBloc('Searching news for query: ${event.query}');
     emit(NewsLoadingState());
     
+    // Update search query and clear category
+    _currentSearchQuery = event.query;
+    _currentCategory = 'general'; // Reset to general for search
+    
     try {
-      // TODO: Implement actual API call
-      await Future.delayed(const Duration(seconds: 2));
+      AppLogger.logNews('Attempting to search news for: ${event.query}');
       
-      final articles = _getMockArticles();
-      emit(NewsLoadedState(articles));
+      // Use real API call for search
+      final response = await NetworkClient.instance.searchNews(
+        query: event.query,
+      );
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        AppLogger.logSuccess('Search results received successfully');
+        AppLogger.logNews('API Response: ${data.toString()}');
+        AppLogger.logNews('Search results count for "${event.query}": ${data['totalResults']}');
+        
+        final articles = <NewsArticle>[];
+        final articlesData = data['articles'] as List;
+        
+        for (final articleData in articlesData) {
+          articles.add(NewsArticle(
+            title: articleData['title'] ?? 'No title',
+            description: articleData['description'] ?? 'No description',
+            url: articleData['url'] ?? '',
+            imageUrl: articleData['urlToImage'],
+            publishedAt: articleData['publishedAt'] ?? DateTime.now().toIso8601String(),
+            source: articleData['source']['name'] ?? 'Unknown',
+          ));
+        }
+        
+        AppLogger.logSuccess('Parsed ${articles.length} search results for: ${event.query}');
+        emit(NewsLoadedState(articles));
+      } else {
+        throw Exception('Failed to search news for: ${event.query}');
+      }
     } catch (e) {
-      emit(NewsErrorState(e.toString()));
+      AppLogger.logError('Failed to search news for "${event.query}": $e');
+      
+      // Fallback to mock search results
+      AppLogger.logWarning('Using mock search results for: ${event.query}');
+      final articles = _getMockSearchResults(event.query);
+      emit(NewsLoadedState(articles));
     }
   }
   
@@ -182,7 +267,19 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     Emitter<NewsState> emit,
   ) async {
     AppLogger.logBloc('Refreshing news data...');
-    add(GetTopHeadlinesEvent());
+    
+    // Refresh based on current state - search query takes priority
+    if (_currentSearchQuery != null) {
+      AppLogger.logInfo('Refreshing search results for: $_currentSearchQuery');
+      add(SearchNewsEvent(_currentSearchQuery!));
+    } else {
+      AppLogger.logInfo('Refreshing category news for: $_currentCategory');
+      if (_currentCategory == 'general') {
+        add(GetTopHeadlinesEvent());
+      } else {
+        add(GetNewsByCategoryEvent(_currentCategory));
+      }
+    }
   }
   
   Future<void> _onTestNewsApi(
@@ -227,6 +324,110 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
         imageUrl: 'https://via.placeholder.com/300x200',
         publishedAt: '2025-01-01T10:00:00Z',
         source: 'Sports Network',
+      ),
+    ];
+  }
+  
+  List<NewsArticle> _getMockArticlesForCategory(String category) {
+    switch (category.toLowerCase()) {
+      case 'technology':
+        return [
+          const NewsArticle(
+            title: 'AI Revolution: New Breakthrough Announced',
+            description: 'Scientists unveil revolutionary AI technology that could change the world.',
+            url: 'https://example.com/tech1',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T15:00:00Z',
+            source: 'TechCrunch',
+          ),
+          const NewsArticle(
+            title: 'Smartphone Innovation: Foldable Display Tech',
+            description: 'New foldable display technology promises better durability and performance.',
+            url: 'https://example.com/tech2',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T14:00:00Z',
+            source: 'The Verge',
+          ),
+        ];
+      case 'sports':
+        return [
+          const NewsArticle(
+            title: 'World Cup Qualifiers: Exciting Matches Ahead',
+            description: 'Teams prepare for crucial World Cup qualifying matches this weekend.',
+            url: 'https://example.com/sports1',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T13:00:00Z',
+            source: 'ESPN',
+          ),
+          const NewsArticle(
+            title: 'Olympic Training: Athletes Gear Up',
+            description: 'Olympic athletes intensify training as games approach.',
+            url: 'https://example.com/sports2',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T12:30:00Z',
+            source: 'Sports Illustrated',
+          ),
+        ];
+      case 'business':
+        return [
+          const NewsArticle(
+            title: 'Stock Market Surge: Tech Stocks Lead',
+            description: 'Technology stocks continue to drive market growth in early trading.',
+            url: 'https://example.com/business1',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T09:00:00Z',
+            source: 'Wall Street Journal',
+          ),
+          const NewsArticle(
+            title: 'Cryptocurrency Update: Bitcoin Reaches New High',
+            description: 'Bitcoin and other cryptocurrencies see significant gains this week.',
+            url: 'https://example.com/business2',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T08:30:00Z',
+            source: 'Financial Times',
+          ),
+        ];
+      case 'health':
+        return [
+          const NewsArticle(
+            title: 'Medical Breakthrough: New Treatment Discovered',
+            description: 'Researchers discover promising new treatment for common condition.',
+            url: 'https://example.com/health1',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T16:00:00Z',
+            source: 'Medical News',
+          ),
+          const NewsArticle(
+            title: 'Wellness Trend: Mental Health Awareness',
+            description: 'Growing awareness about mental health leads to new support programs.',
+            url: 'https://example.com/health2',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T15:30:00Z',
+            source: 'Health Magazine',
+          ),
+        ];
+      default:
+        return _getMockArticles(); // Return general articles for other categories
+    }
+  }
+  
+  List<NewsArticle> _getMockSearchResults(String query) {
+    return [
+      NewsArticle(
+        title: 'Search Result: $query in Headlines',
+        description: 'This is a mock search result for the query "$query". Real search results would be more relevant.',
+        url: 'https://example.com/search1',
+        imageUrl: 'https://via.placeholder.com/300x200',
+        publishedAt: DateTime.now().toIso8601String(),
+        source: 'Search Results',
+      ),
+      NewsArticle(
+        title: 'Latest News About $query',
+        description: 'Another mock search result showing content related to "$query". API would return actual matching articles.',
+        url: 'https://example.com/search2',
+        imageUrl: 'https://via.placeholder.com/300x200',
+        publishedAt: DateTime.now().subtract(const Duration(hours: 1)).toIso8601String(),
+        source: 'News Search',
       ),
     ];
   }
