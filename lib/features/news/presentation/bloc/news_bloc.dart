@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../../../core/network/network_client.dart';
 import '../../../../core/utils/app_logger.dart';
+import '../../../../core/services/saved_news_service.dart';
 
 // Events
 abstract class NewsEvent extends Equatable {
@@ -33,6 +34,26 @@ class SearchNewsEvent extends NewsEvent {
   List<Object> get props => [query];
 }
 
+class SaveArticleEvent extends NewsEvent {
+  final NewsArticle article;
+  
+  const SaveArticleEvent(this.article);
+  
+  @override
+  List<Object> get props => [article];
+}
+
+class RemoveSavedArticleEvent extends NewsEvent {
+  final String articleUrl;
+  
+  const RemoveSavedArticleEvent(this.articleUrl);
+  
+  @override
+  List<Object> get props => [articleUrl];
+}
+
+class GetSavedArticlesEvent extends NewsEvent {}
+
 class RefreshNewsEvent extends NewsEvent {}
 
 // States
@@ -49,11 +70,21 @@ class NewsLoadingState extends NewsState {}
 
 class NewsLoadedState extends NewsState {
   final List<NewsArticle> articles;
+  final bool isSavedArticlesView;
   
-  const NewsLoadedState(this.articles);
+  const NewsLoadedState(this.articles, {this.isSavedArticlesView = false});
   
   @override
-  List<Object> get props => [articles];
+  List<Object> get props => [articles, isSavedArticlesView];
+}
+
+class NewsSavedState extends NewsState {
+  final String message;
+  
+  const NewsSavedState(this.message);
+  
+  @override
+  List<Object> get props => [message];
 }
 
 class NewsErrorState extends NewsState {
@@ -98,6 +129,16 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     on<SearchNewsEvent>(_onSearchNews);
     on<RefreshNewsEvent>(_onRefreshNews);
     on<TestNewsApiEvent>(_onTestNewsApi);
+    on<SaveArticleEvent>(_onSaveArticle);
+    on<RemoveSavedArticleEvent>(_onRemoveSavedArticle);
+    on<GetSavedArticlesEvent>(_onGetSavedArticles);
+    
+    // Initialize saved news service
+    _initializeSavedNewsService();
+  }
+  
+  Future<void> _initializeSavedNewsService() async {
+    await SavedNewsService.instance.initialize();
   }
   
   Future<void> _onGetTopHeadlines(
@@ -297,6 +338,94 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
       AppLogger.logError('News API test failed: $e');
       emit(NewsErrorState('News API test failed: $e'));
     }
+  }
+  
+  Future<void> _onSaveArticle(
+    SaveArticleEvent event,
+    Emitter<NewsState> emit,
+  ) async {
+    AppLogger.logBloc('Saving article: ${event.article.title}');
+    
+    try {
+      final success = await SavedNewsService.instance.saveArticle(event.article);
+      if (success) {
+        AppLogger.logSuccess('Article saved successfully');
+        
+        // Trigger a rebuild by re-emitting the current state
+        final currentState = state;
+        if (currentState is NewsLoadedState) {
+          emit(NewsLoadedState(
+            currentState.articles,
+            isSavedArticlesView: currentState.isSavedArticlesView,
+          ));
+        }
+      } else {
+        AppLogger.logError('Failed to save article');
+        emit(NewsErrorState('Failed to save article'));
+      }
+    } catch (e) {
+      AppLogger.logError('Error saving article: $e');
+      emit(NewsErrorState('Error saving article: $e'));
+    }
+  }
+  
+  Future<void> _onRemoveSavedArticle(
+    RemoveSavedArticleEvent event,
+    Emitter<NewsState> emit,
+  ) async {
+    AppLogger.logBloc('Removing saved article: ${event.articleUrl}');
+    
+    try {
+      final success = await SavedNewsService.instance.removeSavedArticle(event.articleUrl);
+      if (success) {
+        AppLogger.logSuccess('Article removed from saved');
+        
+        // If currently viewing saved articles, refresh the list
+        final currentState = state;
+        if (currentState is NewsLoadedState && currentState.isSavedArticlesView) {
+          add(GetSavedArticlesEvent());
+        } else if (currentState is NewsLoadedState) {
+          // Trigger a rebuild by re-emitting the current state
+          emit(NewsLoadedState(
+            currentState.articles,
+            isSavedArticlesView: currentState.isSavedArticlesView,
+          ));
+        }
+      } else {
+        AppLogger.logError('Failed to remove saved article');
+        emit(NewsErrorState('Failed to remove article'));
+      }
+    } catch (e) {
+      AppLogger.logError('Error removing saved article: $e');
+      emit(NewsErrorState('Error removing article: $e'));
+    }
+  }
+  
+  Future<void> _onGetSavedArticles(
+    GetSavedArticlesEvent event,
+    Emitter<NewsState> emit,
+  ) async {
+    AppLogger.logBloc('Getting saved articles...');
+    emit(NewsLoadingState());
+    
+    try {
+      final savedArticles = SavedNewsService.instance.getSavedArticles();
+      AppLogger.logSuccess('Retrieved ${savedArticles.length} saved articles');
+      emit(NewsLoadedState(savedArticles, isSavedArticlesView: true));
+    } catch (e) {
+      AppLogger.logError('Error getting saved articles: $e');
+      emit(NewsErrorState('Error loading saved articles: $e'));
+    }
+  }
+  
+  /// Check if an article is saved
+  bool isArticleSaved(String articleUrl) {
+    return SavedNewsService.instance.isArticleSaved(articleUrl);
+  }
+  
+  /// Get saved articles count
+  int getSavedArticlesCount() {
+    return SavedNewsService.instance.getSavedArticlesCount();
   }
   
   List<NewsArticle> _getMockArticles() {

@@ -9,6 +9,7 @@ import 'features/weather/presentation/bloc/weather_bloc.dart';
 import 'features/news/presentation/bloc/news_bloc.dart';
 import 'core/network/network_client.dart';
 import 'core/utils/app_logger.dart';
+import 'core/services/saved_news_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +23,10 @@ void main() async {
   // Initialize shared preferences
   await SharedPreferences.getInstance();
   AppLogger.logSuccess('SharedPreferences initialized');
+  
+  // Initialize saved news service
+  await SavedNewsService.instance.initialize();
+  AppLogger.logSuccess('SavedNewsService initialized');
   
   // Initialize Network Client (this will log API key status)
   NetworkClient.instance;

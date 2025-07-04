@@ -29,6 +29,13 @@ class _NewsPageState extends State<NewsPage> {
         elevation: 0,
         actions: [
           IconButton(
+            icon: const Icon(Icons.bookmark),
+            onPressed: () {
+              context.read<NewsBloc>().add(GetSavedArticlesEvent());
+            },
+            tooltip: 'Saved Articles',
+          ),
+          IconButton(
             icon: const Icon(Icons.search),
             onPressed: () {
               // TODO: Implement search functionality
@@ -55,7 +62,12 @@ class _NewsPageState extends State<NewsPage> {
           Expanded(
             child: RefreshIndicator(
               onRefresh: () async {
-                context.read<NewsBloc>().add(RefreshNewsEvent());
+                final currentState = context.read<NewsBloc>().state;
+                if (currentState is NewsLoadedState && currentState.isSavedArticlesView) {
+                  context.read<NewsBloc>().add(GetSavedArticlesEvent());
+                } else {
+                  context.read<NewsBloc>().add(RefreshNewsEvent());
+                }
               },
               child: BlocBuilder<NewsBloc, NewsState>(
                 builder: (context, state) {
@@ -176,18 +188,103 @@ class _NewsPageState extends State<NewsPage> {
 
   Widget _buildNewsContent(NewsLoadedState state) {
     if (state.articles.isEmpty) {
-      return const Center(
-        child: Text('No news articles available'),
-      );
+      if (state.isSavedArticlesView) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.bookmark_border,
+                size: 64,
+                color: AppColors.textSecondary.withOpacity(0.5),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No saved articles yet',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Start saving articles by tapping the bookmark icon',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _selectedCategory = 'general';
+                  });
+                  context.read<NewsBloc>().add(GetTopHeadlinesEvent());
+                },
+                child: const Text('Browse News'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        return const Center(
+          child: Text('No news articles available'),
+        );
+      }
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: state.articles.length,
-      itemBuilder: (context, index) {
-        final article = state.articles[index];
-        return _buildNewsCard(article);
-      },
+    return Column(
+      children: [
+        if (state.isSavedArticlesView)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.bookmark,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Saved Articles (${state.articles.length})',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _selectedCategory = 'general';
+                    });
+                    context.read<NewsBloc>().add(GetTopHeadlinesEvent());
+                  },
+                  child: const Text('Browse News'),
+                ),
+              ],
+            ),
+          ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: state.articles.length,
+            itemBuilder: (context, index) {
+              final article = state.articles[index];
+              return _buildNewsCard(article);
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -312,18 +409,44 @@ class _NewsPageState extends State<NewsPage> {
                           foregroundColor: AppColors.primary,
                         ),
                       ),
-                      TextButton.icon(
-                        onPressed: () {
-                          // TODO: Bookmark article
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Bookmark feature coming soon!')),
+                      BlocBuilder<NewsBloc, NewsState>(
+                        builder: (context, state) {
+                          final isBookmarked = context.read<NewsBloc>().isArticleSaved(article.url);
+                          
+                          return TextButton.icon(
+                            onPressed: () {
+                              if (isBookmarked) {
+                                // Remove from saved
+                                context.read<NewsBloc>().add(RemoveSavedArticleEvent(article.url));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: const Text('Article removed from saved'),
+                                    backgroundColor: AppColors.warning,
+                                    duration: const Duration(seconds: 1),
+                                  ),
+                                );
+                              } else {
+                                // Save article
+                                context.read<NewsBloc>().add(SaveArticleEvent(article));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: const Text('Article saved successfully'),
+                                    backgroundColor: AppColors.success,
+                                    duration: const Duration(seconds: 1),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: Icon(
+                              isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                              size: 16,
+                            ),
+                            label: Text(isBookmarked ? 'Saved' : 'Save'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: isBookmarked ? AppColors.success : AppColors.primary,
+                            ),
                           );
                         },
-                        icon: const Icon(Icons.bookmark_border, size: 16),
-                        label: const Text('Save'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppColors.primary,
-                        ),
                       ),
                     ],
                   ),
