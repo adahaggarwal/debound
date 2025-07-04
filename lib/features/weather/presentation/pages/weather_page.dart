@@ -147,7 +147,7 @@ class _WeatherPageState extends State<WeatherPage> {
           const SizedBox(height: 16),
           _buildForecastCard(state),
           const SizedBox(height: 16),
-          _buildMultipleCitiesCard(),
+          _buildMultipleCitiesCard(state),
         ],
       ),
     );
@@ -450,7 +450,7 @@ class _WeatherPageState extends State<WeatherPage> {
     );
   }
 
-  Widget _buildMultipleCitiesCard() {
+  Widget _buildMultipleCitiesCard(WeatherLoadedState state) {
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -477,9 +477,10 @@ class _WeatherPageState extends State<WeatherPage> {
                       child: const AddCityBottomSheet(),
                     );
                     
-                    if (result != null) {
+                    if (result != null && result.isNotEmpty) {
+                      context.read<WeatherBloc>().add(AddCityEvent(result));
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Added city: $result')),
+                        SnackBar(content: Text('Adding weather for $result...')),
                       );
                     }
                   },
@@ -487,40 +488,98 @@ class _WeatherPageState extends State<WeatherPage> {
               ],
             ),
             const SizedBox(height: 16),
-            _buildCityWeatherItem('New York', '18°C', Icons.cloud),
-            _buildCityWeatherItem('Tokyo', '25°C', Icons.wb_sunny),
-            _buildCityWeatherItem('Paris', '15°C', Icons.umbrella),
+            if (state.otherCities.isEmpty)
+              Center(
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.location_city,
+                      size: 48,
+                      color: AppColors.textSecondary.withOpacity(0.5),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Loading nearby cities...',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              ...state.otherCities.map((cityWeather) => _buildCityWeatherItem(
+                cityWeather,
+                state,
+              )).toList(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCityWeatherItem(String city, String temperature, IconData icon) {
+  Widget _buildCityWeatherItem(CityWeather cityWeather, WeatherLoadedState state) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
           Icon(
-            icon,
+            WeatherUtils.getWeatherIcon(cityWeather.condition),
             color: AppColors.primary,
             size: 24,
           ),
           const SizedBox(width: 16),
           Expanded(
-            child: Text(
-              city,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w500,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      cityWeather.cityName,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (cityWeather.isNearby) ...[
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.near_me,
+                        size: 12,
+                        color: AppColors.primary.withOpacity(0.7),
+                      ),
+                    ],
+                  ],
+                ),
+                Text(
+                  cityWeather.description,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
           ),
           Text(
-            temperature,
+            WeatherUtils.formatTemperature(cityWeather.temperature),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               fontWeight: FontWeight.w600,
             ),
           ),
+          if (!cityWeather.isNearby) ...[
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () {
+                context.read<WeatherBloc>().add(RemoveCityEvent(cityWeather.cityName));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Removed ${cityWeather.cityName}')),
+                );
+              },
+              tooltip: 'Remove city',
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
         ],
       ),
     );
@@ -568,6 +627,7 @@ class AddCityBottomSheet extends StatefulWidget {
 
 class _AddCityBottomSheetState extends State<AddCityBottomSheet> {
   final TextEditingController _controller = TextEditingController();
+  bool _isLoading = false;
 
   @override
   Widget build(BuildContext context) {
@@ -578,34 +638,66 @@ class _AddCityBottomSheetState extends State<AddCityBottomSheet> {
           controller: _controller,
           decoration: const InputDecoration(
             labelText: 'City Name',
-            hintText: 'Enter city name',
+            hintText: 'Enter city name (e.g., Paris, Tokyo)',
             border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.location_city),
           ),
+          textCapitalization: TextCapitalization.words,
+          onSubmitted: _isLoading ? null : (value) => _addCity(),
         ),
         const SizedBox(height: 16),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             TextButton(
-              onPressed: () {
+              onPressed: _isLoading ? null : () {
                 Navigator.of(context).pop();
               },
               child: const Text('Cancel'),
             ),
             const SizedBox(width: 8),
             ElevatedButton(
-              onPressed: () {
-                final city = _controller.text.trim();
-                if (city.isNotEmpty) {
-                  Navigator.of(context).pop(city);
-                }
-              },
-              child: const Text('Add'),
+              onPressed: _isLoading ? null : _addCity,
+              child: _isLoading 
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Add City'),
             ),
           ],
         ),
       ],
     );
+  }
+
+  void _addCity() {
+    final city = _controller.text.trim();
+    if (city.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a city name')),
+      );
+      return;
+    }
+    
+    if (city.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('City name must be at least 2 characters')),
+      );
+      return;
+    }
+    
+    setState(() {
+      _isLoading = true;
+    });
+    
+    // Simulate a brief delay to show loading state
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        Navigator.of(context).pop(city);
+      }
+    });
   }
 
   @override
