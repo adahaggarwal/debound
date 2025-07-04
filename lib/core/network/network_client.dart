@@ -186,6 +186,35 @@ class NetworkClient {
     }
   }
   
+  Future<Response> getWeatherForecastByCoordinates(double lat, double lon) async {
+    AppLogger.logWeather('Fetching weather forecast for coordinates: lat=$lat, lon=$lon');
+    
+    if (AppConstants.weatherApiKey == 'YOUR_WEATHER_API_KEY') {
+      AppLogger.logError('Weather API Key not configured!');
+      throw Exception('Weather API Key not configured');
+    }
+    
+    final params = {
+      'lat': lat,
+      'lon': lon,
+      'appid': AppConstants.weatherApiKey,
+      'units': 'metric',
+    };
+    
+    try {
+      final response = await _dio.get(
+        '${AppConstants.weatherApiBaseUrl}/forecast',
+        queryParameters: params,
+      );
+      
+      AppLogger.logSuccess('Weather forecast fetched successfully for coordinates');
+      return response;
+    } catch (e) {
+      AppLogger.logError('Failed to fetch weather forecast for coordinates: $e');
+      rethrow;
+    }
+  }
+  
   // News API calls
   Future<Response> getTopHeadlines({
     String? category,

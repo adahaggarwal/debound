@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_colors.dart';
 import '../weather/presentation/pages/home_page.dart';
 import '../../core/services/location_service.dart';
 import '../../core/utils/app_logger.dart';
-import '../../shared/widgets/location_permission_dialog.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -46,39 +46,37 @@ class _SplashScreenState extends State<SplashScreen>
     
     _animationController.forward();
     
-    // Start location permission flow after animation
-    _waitForLocationPermission();
+    // Handle first-time permission
+    _handleFirstTimePermission();
   }
   
-  Future<void> _waitForLocationPermission() async {
-    AppLogger.logInfo('Waiting for location permission...');
+  Future<void> _handleFirstTimePermission() async {
+    AppLogger.logInfo('Checking first-time permission...');
     
-    // Wait for animation to complete
+    // Wait for animation
     await Future.delayed(const Duration(seconds: 2));
     
     if (!mounted) return;
     
-    // Show location permission dialog and wait for user response
-    await _showLocationPermissionDialog();
-  }
-
-  Future<void> _showLocationPermissionDialog() async {
-    if (!mounted || _hasNavigated) return;
+    // Check if this is first time opening app
+    final prefs = await SharedPreferences.getInstance();
+    final isFirstTime = prefs.getBool('first_time_location') ?? true;
     
-    AppLogger.logInfo('Showing location permission dialog');
+    if (isFirstTime) {
+      AppLogger.logInfo('First time opening app - requesting location');
+      
+      // Request location permission (system dialog will show)
+      final granted = await LocationService.instance.requestLocationPermission();
+      
+      // Mark as not first time
+      await prefs.setBool('first_time_location', false);
+      
+      AppLogger.logInfo('Permission result: $granted');
+    } else {
+      AppLogger.logInfo('Not first time - skipping permission request');
+    }
     
-    // Show permission dialog and wait for user decision
-    await LocationPermissionDialog.show(
-      context: context,
-      onPermissionGranted: () {
-        AppLogger.logSuccess('User granted location permission');
-        _navigateToHome();
-      },
-      onPermissionDenied: () {
-        AppLogger.logInfo('User denied location permission');
-        _navigateToHome();
-      },
-    );
+    _navigateToHome();
   }
 
   void _navigateToHome() {
@@ -188,7 +186,7 @@ class _SplashScreenState extends State<SplashScreen>
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Waiting for location permission...',
+                      'Setting up your experience...',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Colors.white.withOpacity(0.8),
                       ),

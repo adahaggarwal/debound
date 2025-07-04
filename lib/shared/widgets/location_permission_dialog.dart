@@ -211,7 +211,8 @@ class LocationSettingsDialog extends StatelessWidget {
         ElevatedButton(
           onPressed: () async {
             Navigator.of(context).pop();
-            await LocationService.instance.openLocationSettings();
+            AppLogger.logInfo('Opening app settings (simplified)');
+            // TODO: Add real settings opening when location plugin is enabled
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.primary,

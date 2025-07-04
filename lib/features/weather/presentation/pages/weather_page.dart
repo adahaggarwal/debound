@@ -38,6 +38,18 @@ class _WeatherPageState extends State<WeatherPage> {
             onPressed: () async {
               AppLogger.logInfo('Location button pressed');
               
+              // Check if location services are enabled first
+              final isLocationServiceEnabled = await LocationService.instance.isLocationServiceEnabled();
+              if (!isLocationServiceEnabled) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Location services are disabled. Please enable them in your device settings.'),
+                    duration: Duration(seconds: 5),
+                  ),
+                );
+                return;
+              }
+              
               // Check if location permission is granted
               final hasPermission = await LocationService.instance.isLocationPermissionGranted();
               
@@ -45,7 +57,7 @@ class _WeatherPageState extends State<WeatherPage> {
                 // Refresh with current location
                 context.read<WeatherBloc>().add(GetLocationWeatherEvent());
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Refreshing location weather...')),
+                  const SnackBar(content: Text('Getting your location weather...')),
                 );
               } else {
                 // Show permission dialog
@@ -58,6 +70,7 @@ class _WeatherPageState extends State<WeatherPage> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Location permission is needed for local weather'),
+                        duration: Duration(seconds: 3),
                       ),
                     );
                   },
@@ -132,7 +145,7 @@ class _WeatherPageState extends State<WeatherPage> {
           const SizedBox(height: 16),
           _buildWeatherDetailsCard(state),
           const SizedBox(height: 16),
-          _buildForecastCard(),
+          _buildForecastCard(state),
           const SizedBox(height: 16),
           _buildMultipleCitiesCard(),
         ],
@@ -231,14 +244,14 @@ class _WeatherPageState extends State<WeatherPage> {
                   child: _buildDetailItem(
                     Icons.visibility,
                     'Visibility',
-                    '10.0 km',
+                    '${state.visibility?.toStringAsFixed(1) ?? '10.0'} km',
                   ),
                 ),
                 Expanded(
                   child: _buildDetailItem(
                     Icons.water_drop,
                     'Humidity',
-                    '65%',
+                    '${state.humidity?.toInt() ?? 65}%',
                   ),
                 ),
               ],
@@ -250,14 +263,14 @@ class _WeatherPageState extends State<WeatherPage> {
                   child: _buildDetailItem(
                     Icons.air,
                     'Wind Speed',
-                    '5.2 m/s',
+                    '${state.windSpeed?.toStringAsFixed(1) ?? '5.2'} m/s',
                   ),
                 ),
                 Expanded(
                   child: _buildDetailItem(
                     Icons.speed,
                     'Pressure',
-                    '1013 hPa',
+                    '${state.pressure?.toInt() ?? 1013} hPa',
                   ),
                 ),
               ],
@@ -292,7 +305,7 @@ class _WeatherPageState extends State<WeatherPage> {
     );
   }
 
-  Widget _buildForecastCard() {
+  Widget _buildForecastCard(WeatherLoadedState state) {
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -309,48 +322,127 @@ class _WeatherPageState extends State<WeatherPage> {
             ),
             const SizedBox(height: 16),
             SizedBox(
-              height: 100,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: 5,
-                itemBuilder: (context, index) {
-                  final icons = [
-                    Icons.wb_sunny,
-                    Icons.cloud,
-                    Icons.umbrella,
-                    Icons.wb_sunny,
-                    Icons.cloud,
-                  ];
-                  final temps = [22, 19, 16, 24, 20];
-                  final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-                  
-                  return Container(
-                    width: 80,
-                    margin: const EdgeInsets.only(right: 16),
-                    child: Column(
-                      children: [
-                        Text(
-                          days[index],
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        const SizedBox(height: 8),
-                        Icon(
-                          icons[index],
-                          color: AppColors.primary,
-                          size: 24,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '${temps[index]}°C',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
+              height: 110,
+              child: state.forecast != null && state.forecast!.isNotEmpty
+                  ? ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: state.forecast!.length,
+                      itemBuilder: (context, index) {
+                        final forecast = state.forecast![index];
+                        
+                        // Format day names
+                        final dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                        final dayName = dayNames[forecast.date.weekday - 1];
+                        
+                        return Container(
+                          width: 85,
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                        ),
-                      ],
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                dayName,
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Icon(
+                                WeatherUtils.getWeatherIcon(forecast.condition),
+                                color: AppColors.primary,
+                                size: 24,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                '${forecast.maxTemp.round()}°',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                '${forecast.minTemp.round()}°',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    )
+                  : ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: 5,
+                      itemBuilder: (context, index) {
+                        final icons = [
+                          Icons.wb_sunny,
+                          Icons.cloud,
+                          Icons.umbrella,
+                          Icons.wb_sunny,
+                          Icons.cloud,
+                        ];
+                        final temps = [22, 19, 16, 24, 20];
+                        
+                        // Get current date and add days
+                        final now = DateTime.now();
+                        final forecastDate = now.add(Duration(days: index + 1));
+                        
+                        // Format day names
+                        final dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                        final dayName = dayNames[forecastDate.weekday - 1];
+                        
+                        return Container(
+                          width: 85,
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                dayName,
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Icon(
+                                icons[index],
+                                color: AppColors.primary,
+                                size: 24,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                '${temps[index]}°',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                '${temps[index] - 5}°',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
             ),
           ],
         ),
@@ -432,5 +524,93 @@ class _WeatherPageState extends State<WeatherPage> {
         ],
       ),
     );
+  }
+}
+
+// Placeholder classes for the SettingsBottomSheet and AddCityBottomSheet
+class SettingsBottomSheet extends StatelessWidget {
+  const SettingsBottomSheet({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ListTile(
+          leading: const Icon(Icons.thermostat),
+          title: const Text('Temperature Unit'),
+          subtitle: const Text('Celsius'),
+          onTap: () {},
+        ),
+        ListTile(
+          leading: const Icon(Icons.location_on),
+          title: const Text('Default Location'),
+          subtitle: const Text('Current Location'),
+          onTap: () {},
+        ),
+        ListTile(
+          leading: const Icon(Icons.notifications),
+          title: const Text('Weather Alerts'),
+          subtitle: const Text('Enabled'),
+          onTap: () {},
+        ),
+      ],
+    );
+  }
+}
+
+class AddCityBottomSheet extends StatefulWidget {
+  const AddCityBottomSheet({super.key});
+
+  @override
+  State<AddCityBottomSheet> createState() => _AddCityBottomSheetState();
+}
+
+class _AddCityBottomSheetState extends State<AddCityBottomSheet> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+          controller: _controller,
+          decoration: const InputDecoration(
+            labelText: 'City Name',
+            hintText: 'Enter city name',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: () {
+                final city = _controller.text.trim();
+                if (city.isNotEmpty) {
+                  Navigator.of(context).pop(city);
+                }
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 }
