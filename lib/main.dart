@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'core/constants/app_theme.dart';
 import 'features/splash/splash_screen.dart';
@@ -13,11 +14,29 @@ import 'core/services/saved_news_service.dart';
 import 'core/services/settings_service.dart';
 import 'core/services/cache_service.dart';
 import 'core/theme/theme_bloc.dart';
+import 'core/constants/app_constants.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
   AppLogger.logInfo('🚀 Starting Weather & News Dashboard App');
+  
+  // Load environment variables
+  try {
+    await dotenv.load(fileName: ".env");
+    AppLogger.logSuccess('Environment variables loaded');
+    
+    // Validate API keys
+    if (!AppConstants.areApiKeysValid) {
+      AppLogger.logError('⚠️ API keys not found or invalid. Please check your .env file.');
+      AppLogger.logInfo('Make sure you have copied .env.example to .env and filled in your API keys.');
+    } else {
+      AppLogger.logSuccess('✅ API keys validated successfully');
+    }
+  } catch (e) {
+    AppLogger.logError('❌ Failed to load environment variables: $e');
+    AppLogger.logInfo('Please ensure you have a .env file with your API keys.');
+  }
   
   // Initialize Hive
   await Hive.initFlutter();

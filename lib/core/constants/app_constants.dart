@@ -1,11 +1,13 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 class AppConstants {
   // API URLs
   static const String weatherApiBaseUrl = 'https://api.openweathermap.org/data/2.5';
   static const String newsApiBaseUrl = 'https://newsapi.org/v2';
   
-  // API Keys - You'll need to get these
-  static const String weatherApiKey = '94249974b989b2a2dcaeef8cdfd57548';
-  static const String newsApiKey = 'b211a5d67b0d4d60a125470a7f544333';
+  // API Keys - Read from environment file
+  static String get weatherApiKey => dotenv.env['WEATHER_API_KEY'] ?? '';
+  static String get newsApiKey => dotenv.env['NEWS_API_KEY'] ?? '';
 
   // Cache Keys
   static const String weatherCacheKey = 'weather_cache';
@@ -37,4 +39,9 @@ class AppConstants {
   // Weather Update Intervals
   static const Duration weatherUpdateInterval = Duration(minutes: 15);
   static const Duration newsUpdateInterval = Duration(minutes: 30);
+  
+  // Helper method to validate API keys
+  static bool get areApiKeysValid {
+    return weatherApiKey.isNotEmpty && newsApiKey.isNotEmpty;
+  }
 }
