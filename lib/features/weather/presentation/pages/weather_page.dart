@@ -9,6 +9,8 @@ import '../../../../shared/widgets/custom_bottom_sheet.dart';
 import '../../../../core/utils/app_logger.dart';
 import '../../../../shared/widgets/location_permission_dialog.dart';
 import '../../../../core/services/location_service.dart';
+import '../../../../core/services/settings_service.dart';
+import '../../../../core/theme/theme_bloc.dart';
 
 class WeatherPage extends StatefulWidget {
   const WeatherPage({super.key});
@@ -27,7 +29,7 @@ class _WeatherPageState extends State<WeatherPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Weather'),
+        title: const Text('Weather Updates'),
         centerTitle: true,
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
@@ -78,14 +80,7 @@ class _WeatherPageState extends State<WeatherPage> {
               }
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.bug_report),
-            onPressed: () {
-              AppLogger.logInfo('Testing API keys...');
-              context.read<WeatherBloc>().add(TestApiKeysEvent());
-            },
-            tooltip: 'Test API Keys',
-          ),
+         
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
@@ -162,9 +157,14 @@ class _WeatherPageState extends State<WeatherPage> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+          BoxShadow(
             color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
+            blurRadius: 30,
+            offset: const Offset(0, 15),
           ),
         ],
       ),
@@ -224,7 +224,8 @@ class _WeatherPageState extends State<WeatherPage> {
 
   Widget _buildWeatherDetailsCard(WeatherLoadedState state) {
     return Card(
-      elevation: 4,
+      elevation: 8,
+      shadowColor: Colors.black.withOpacity(0.1),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -307,7 +308,8 @@ class _WeatherPageState extends State<WeatherPage> {
 
   Widget _buildForecastCard(WeatherLoadedState state) {
     return Card(
-      elevation: 4,
+      elevation: 8,
+      shadowColor: Colors.black.withOpacity(0.1),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -452,7 +454,8 @@ class _WeatherPageState extends State<WeatherPage> {
 
   Widget _buildMultipleCitiesCard(WeatherLoadedState state) {
     return Card(
-      elevation: 4,
+      elevation: 8,
+      shadowColor: Colors.black.withOpacity(0.1),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -586,35 +589,124 @@ class _WeatherPageState extends State<WeatherPage> {
   }
 }
 
-// Placeholder classes for the SettingsBottomSheet and AddCityBottomSheet
-class SettingsBottomSheet extends StatelessWidget {
+// Settings Bottom Sheet
+class SettingsBottomSheet extends StatefulWidget {
   const SettingsBottomSheet({super.key});
 
+  @override
+  State<SettingsBottomSheet> createState() => _SettingsBottomSheetState();
+}
+
+class _SettingsBottomSheetState extends State<SettingsBottomSheet> {
   @override
   Widget build(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Temperature Unit Setting
         ListTile(
           leading: const Icon(Icons.thermostat),
           title: const Text('Temperature Unit'),
-          subtitle: const Text('Celsius'),
-          onTap: () {},
+          subtitle: Text(SettingsService.instance.getTemperatureUnitName()),
+          trailing: Switch(
+            value: SettingsService.instance.getTemperatureUnit() == TemperatureUnit.fahrenheit,
+            onChanged: (value) async {
+              final unit = value ? TemperatureUnit.fahrenheit : TemperatureUnit.celsius;
+              await SettingsService.instance.setTemperatureUnit(unit);
+              setState(() {});
+              
+              // Show a snackbar to indicate the change
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Temperature unit changed to ${SettingsService.instance.getTemperatureUnitName()}'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
         ),
+        
+        // Theme Setting
+        BlocBuilder<ThemeBloc, ThemeState>(
+          builder: (context, state) {
+            ThemeMode currentTheme = ThemeMode.system;
+            if (state is ThemeLoaded) {
+              currentTheme = state.themeMode;
+            }
+            
+            return ListTile(
+              leading: const Icon(Icons.palette),
+              title: const Text('Theme'),
+              subtitle: Text(_getThemeDisplayName(currentTheme)),
+              trailing: PopupMenuButton<ThemeMode>(
+                onSelected: (ThemeMode mode) {
+                  context.read<ThemeBloc>().add(ChangeThemeEvent(mode));
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: ThemeMode.system,
+                    child: Text('System'),
+                  ),
+                  const PopupMenuItem(
+                    value: ThemeMode.light,
+                    child: Text('Light'),
+                  ),
+                  const PopupMenuItem(
+                    value: ThemeMode.dark,
+                    child: Text('Dark'),
+                  ),
+                ],
+                child: const Icon(Icons.arrow_drop_down),
+              ),
+            );
+          },
+        ),
+        
+        // Location Setting
         ListTile(
           leading: const Icon(Icons.location_on),
           title: const Text('Default Location'),
           subtitle: const Text('Current Location'),
-          onTap: () {},
+          onTap: () {
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Location settings feature coming soon!'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          },
         ),
+        
+        // Weather Alerts Setting
         ListTile(
           leading: const Icon(Icons.notifications),
           title: const Text('Weather Alerts'),
           subtitle: const Text('Enabled'),
-          onTap: () {},
+          onTap: () {
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Weather alerts feature coming soon!'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          },
         ),
       ],
     );
+  }
+  
+  String _getThemeDisplayName(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.light:
+        return 'Light';
+      case ThemeMode.dark:
+        return 'Dark';
+      case ThemeMode.system:
+      default:
+        return 'System';
+    }
   }
 }
 

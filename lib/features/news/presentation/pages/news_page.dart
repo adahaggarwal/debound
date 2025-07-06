@@ -35,15 +35,7 @@ class _NewsPageState extends State<NewsPage> {
             },
             tooltip: 'Saved Articles',
           ),
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              // TODO: Implement search functionality
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Search feature coming soon!')),
-              );
-            },
-          ),
+          
         ],
         flexibleSpace: Container(
           decoration: const BoxDecoration(
@@ -290,7 +282,8 @@ class _NewsPageState extends State<NewsPage> {
 
   Widget _buildNewsCard(NewsArticle article) {
     return Card(
-      elevation: 4,
+      elevation: 8,
+      shadowColor: Colors.black.withOpacity(0.1),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       margin: const EdgeInsets.only(bottom: 16),
       child: InkWell(

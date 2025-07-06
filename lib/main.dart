@@ -10,6 +10,8 @@ import 'features/news/presentation/bloc/news_bloc.dart';
 import 'core/network/network_client.dart';
 import 'core/utils/app_logger.dart';
 import 'core/services/saved_news_service.dart';
+import 'core/services/settings_service.dart';
+import 'core/theme/theme_bloc.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +30,10 @@ void main() async {
   await SavedNewsService.instance.initialize();
   AppLogger.logSuccess('SavedNewsService initialized');
   
+  // Initialize settings service
+  await SettingsService.instance.initialize();
+  AppLogger.logSuccess('SettingsService initialized');
+  
   // Initialize Network Client (this will log API key status)
   NetworkClient.instance;
   
@@ -43,14 +49,24 @@ class MyApp extends StatelessWidget {
       providers: [
         BlocProvider(create: (context) => WeatherBloc()),
         BlocProvider(create: (context) => NewsBloc()),
+        BlocProvider(create: (context) => ThemeBloc()..add(InitializeThemeEvent())),
       ],
-      child: MaterialApp(
-        title: 'Weather & News Dashboard',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: ThemeMode.system,
-        home: const SplashScreen(),
+      child: BlocBuilder<ThemeBloc, ThemeState>(
+        builder: (context, state) {
+          ThemeMode currentThemeMode = ThemeMode.system;
+          if (state is ThemeLoaded) {
+            currentThemeMode = state.themeMode;
+          }
+          
+          return MaterialApp(
+            title: 'Weather & News Dashboard',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            themeMode: currentThemeMode,
+            home: const SplashScreen(),
+          );
+        },
       ),
     );
   }

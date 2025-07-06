@@ -71,11 +71,13 @@ class NewsLoadingState extends NewsState {}
 class NewsLoadedState extends NewsState {
   final List<NewsArticle> articles;
   final bool isSavedArticlesView;
+  final DateTime timestamp;
   
-  const NewsLoadedState(this.articles, {this.isSavedArticlesView = false});
+  NewsLoadedState(this.articles, {this.isSavedArticlesView = false}) 
+      : timestamp = DateTime.now();
   
   @override
-  List<Object> get props => [articles, isSavedArticlesView];
+  List<Object> get props => [articles, isSavedArticlesView, timestamp];
 }
 
 class NewsSavedState extends NewsState {
@@ -351,7 +353,7 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
       if (success) {
         AppLogger.logSuccess('Article saved successfully');
         
-        // Trigger a rebuild by re-emitting the current state
+        // Force a rebuild by emitting a new state with timestamp
         final currentState = state;
         if (currentState is NewsLoadedState) {
           emit(NewsLoadedState(
@@ -385,7 +387,7 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
         if (currentState is NewsLoadedState && currentState.isSavedArticlesView) {
           add(GetSavedArticlesEvent());
         } else if (currentState is NewsLoadedState) {
-          // Trigger a rebuild by re-emitting the current state
+          // Force a rebuild by emitting a new state with timestamp
           emit(NewsLoadedState(
             currentState.articles,
             isSavedArticlesView: currentState.isSavedArticlesView,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import '../services/settings_service.dart';
 
 class WeatherUtils {
   static IconData getWeatherIcon(String condition) {
@@ -93,7 +94,7 @@ class WeatherUtils {
   }
   
   static String formatTemperature(double temperature) {
-    return '${temperature.round()}°C';
+    return SettingsService.instance.formatTemperature(temperature);
   }
   
   static String formatWindSpeed(double speed) {
