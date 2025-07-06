@@ -38,19 +38,7 @@ class _NewsPageState extends State<NewsPage> {
             },
             tooltip: 'Saved Articles',
           ),
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              // Focus on search bar
-              FocusScope.of(context).requestFocus(FocusNode());
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Use the search bar below to search news'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
-          ),
+          
         ],
         flexibleSpace: Container(
           decoration: const BoxDecoration(
