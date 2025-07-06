@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/news_bloc.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/utils/date_utils.dart' as app_date_utils;
@@ -101,6 +102,92 @@ class _NewsPageState extends State<NewsPage> {
         ],
       ),
     );
+  }
+
+  void _openArticleInBrowser(NewsArticle article) async {
+    try {
+      final Uri url = Uri.parse(article.url);
+      
+      // Simple direct launch approach without canLaunchUrl check
+      // This bypasses the channel error that occurs with canLaunchUrl
+      bool launched = false;
+      
+      try {
+        launched = await launchUrl(
+          url,
+          mode: LaunchMode.externalApplication,
+        );
+      } catch (directLaunchError) {
+        AppLogger.logWarning('Direct launch failed, trying platform application mode: $directLaunchError');
+        
+        // Fallback to platform application mode
+        try {
+          launched = await launchUrl(
+            url,
+            mode: LaunchMode.platformDefault,
+          );
+        } catch (platformError) {
+          AppLogger.logWarning('Platform default failed, trying in-app web view: $platformError');
+          
+          // Last fallback: in-app web view
+          try {
+            launched = await launchUrl(
+              url,
+              mode: LaunchMode.inAppWebView,
+            );
+          } catch (webViewError) {
+            AppLogger.logError('All launch methods failed: $webViewError');
+            launched = false;
+          }
+        }
+      }
+      
+      if (launched) {
+        AppLogger.logInfo('Successfully opened article: ${article.title}');
+        
+        // Show confirmation to user
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Opening "${article.title}"...'),
+              backgroundColor: AppColors.success,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        throw Exception('All launch methods failed for URL: ${article.url}');
+      }
+    } catch (e) {
+      AppLogger.logError('Failed to open article: $e');
+      
+      // Show error with fallback option to copy URL
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Cannot open article: ${e.toString().contains('channel-error') ? 'Browser not available' : 'Unknown error'}'),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'Copy URL',
+              textColor: Colors.white,
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: article.url));
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Article URL copied to clipboard'),
+                      backgroundColor: AppColors.success,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              },
+            ),
+          ),
+        );
+      }
+    }
   }
 
   void _shareArticle(NewsArticle article) async {
@@ -415,10 +502,7 @@ class _NewsPageState extends State<NewsPage> {
       margin: const EdgeInsets.only(bottom: 16),
       child: InkWell(
         onTap: () {
-          // TODO: Open article in web view or browser
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Opening: ${article.title}')),
-          );
+          _openArticleInBrowser(article);
         },
         borderRadius: BorderRadius.circular(16),
         child: Column(
