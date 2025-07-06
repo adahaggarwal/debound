@@ -3,6 +3,7 @@ import 'package:equatable/equatable.dart';
 import '../../../../core/network/network_client.dart';
 import '../../../../core/utils/app_logger.dart';
 import '../../../../core/services/saved_news_service.dart';
+import '../../../../core/services/cache_service.dart';
 
 // Events
 abstract class NewsEvent extends Equatable {
@@ -56,6 +57,10 @@ class GetSavedArticlesEvent extends NewsEvent {}
 
 class RefreshNewsEvent extends NewsEvent {}
 
+class LoadMoreNewsEvent extends NewsEvent {}
+
+class LoadCachedNewsEvent extends NewsEvent {}
+
 // States
 abstract class NewsState extends Equatable {
   const NewsState();
@@ -68,16 +73,31 @@ class NewsInitialState extends NewsState {}
 
 class NewsLoadingState extends NewsState {}
 
+class NewsLoadingMoreState extends NewsState {
+  final List<NewsArticle> existingArticles;
+  
+  const NewsLoadingMoreState(this.existingArticles);
+  
+  @override
+  List<Object> get props => [existingArticles];
+}
+
 class NewsLoadedState extends NewsState {
   final List<NewsArticle> articles;
   final bool isSavedArticlesView;
   final DateTime timestamp;
+  final bool hasMoreData;
+  final int currentPage;
   
-  NewsLoadedState(this.articles, {this.isSavedArticlesView = false}) 
-      : timestamp = DateTime.now();
+  NewsLoadedState(
+    this.articles, {
+    this.isSavedArticlesView = false,
+    this.hasMoreData = true,
+    this.currentPage = 1,
+  }) : timestamp = DateTime.now();
   
   @override
-  List<Object> get props => [articles, isSavedArticlesView, timestamp];
+  List<Object> get props => [articles, isSavedArticlesView, timestamp, hasMoreData, currentPage];
 }
 
 class NewsSavedState extends NewsState {
@@ -124,12 +144,15 @@ class NewsArticle extends Equatable {
 class NewsBloc extends Bloc<NewsEvent, NewsState> {
   String _currentCategory = 'general';
   String? _currentSearchQuery;
+  int _currentPage = 1;
   
   NewsBloc() : super(NewsInitialState()) {
     on<GetTopHeadlinesEvent>(_onGetTopHeadlines);
     on<GetNewsByCategoryEvent>(_onGetNewsByCategory);
     on<SearchNewsEvent>(_onSearchNews);
     on<RefreshNewsEvent>(_onRefreshNews);
+    on<LoadMoreNewsEvent>(_onLoadMoreNews);
+    on<LoadCachedNewsEvent>(_onLoadCachedNews);
     on<TestNewsApiEvent>(_onTestNewsApi);
     on<SaveArticleEvent>(_onSaveArticle);
     on<RemoveSavedArticleEvent>(_onRemoveSavedArticle);
@@ -153,6 +176,7 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     // Reset to default category when getting top headlines
     _currentCategory = 'general';
     _currentSearchQuery = null;
+    _currentPage = 1;
     
     try {
       AppLogger.logNews('Attempting to fetch top headlines...');
@@ -160,6 +184,7 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
       // Test with real API call
       final response = await NetworkClient.instance.getTopHeadlines(
         category: _currentCategory,
+        page: _currentPage,
       );
       
       if (response.statusCode == 200) {
@@ -183,17 +208,43 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
         }
         
         AppLogger.logSuccess('Parsed ${articles.length} articles');
-        emit(NewsLoadedState(articles));
+        
+        final hasMoreData = articles.length >= 20; // Assuming 20 articles per page
+        emit(NewsLoadedState(
+          articles, 
+          hasMoreData: hasMoreData,
+          currentPage: _currentPage,
+        ));
+        
+        // Cache the news data
+        await CacheService.instance.cacheNewsData(articles, page: _currentPage);
       } else {
         throw Exception('Failed to load news');
       }
     } catch (e) {
       AppLogger.logError('Failed to get top headlines: $e');
       
+      // Try to load cached data first
+      final cachedArticles = CacheService.instance.getCachedNewsData();
+      if (cachedArticles.isNotEmpty) {
+        AppLogger.logWarning('Using cached news data');
+        final cachedPage = CacheService.instance.getCurrentNewsPage();
+        emit(NewsLoadedState(
+          cachedArticles,
+          hasMoreData: true,
+          currentPage: cachedPage,
+        ));
+        return;
+      }
+      
       // Fallback to mock data for UI testing
       AppLogger.logWarning('Using mock data for UI testing');
       final articles = _getMockArticles();
-      emit(NewsLoadedState(articles));
+      emit(NewsLoadedState(
+        articles,
+        hasMoreData: true,
+        currentPage: 1,
+      ));
     }
   }
   
@@ -207,6 +258,7 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     // Update current category and clear search query
     _currentCategory = event.category;
     _currentSearchQuery = null;
+    _currentPage = 1;
     
     try {
       AppLogger.logNews('Attempting to fetch news for category: ${event.category}');
@@ -214,6 +266,7 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
       // Use real API call for category news
       final response = await NetworkClient.instance.getTopHeadlines(
         category: event.category,
+        page: _currentPage,
       );
       
       if (response.statusCode == 200) {
@@ -237,7 +290,16 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
         }
         
         AppLogger.logSuccess('Parsed ${articles.length} articles for category: ${event.category}');
-        emit(NewsLoadedState(articles));
+        
+        final hasMoreData = articles.length >= 20;
+        emit(NewsLoadedState(
+          articles,
+          hasMoreData: hasMoreData,
+          currentPage: _currentPage,
+        ));
+        
+        // Cache the news data
+        await CacheService.instance.cacheNewsData(articles, page: _currentPage);
       } else {
         throw Exception('Failed to load news for category: ${event.category}');
       }
@@ -247,7 +309,11 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
       // Fallback to mock data with category context
       AppLogger.logWarning('Using mock data for category: ${event.category}');
       final articles = _getMockArticlesForCategory(event.category);
-      emit(NewsLoadedState(articles));
+      emit(NewsLoadedState(
+        articles,
+        hasMoreData: true,
+        currentPage: 1,
+      ));
     }
   }
   
@@ -261,6 +327,7 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     // Update search query and clear category
     _currentSearchQuery = event.query;
     _currentCategory = 'general'; // Reset to general for search
+    _currentPage = 1;
     
     try {
       AppLogger.logNews('Attempting to search news for: ${event.query}');
@@ -268,6 +335,7 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
       // Use real API call for search
       final response = await NetworkClient.instance.searchNews(
         query: event.query,
+        page: _currentPage,
       );
       
       if (response.statusCode == 200) {
@@ -291,7 +359,16 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
         }
         
         AppLogger.logSuccess('Parsed ${articles.length} search results for: ${event.query}');
-        emit(NewsLoadedState(articles));
+        
+        final hasMoreData = articles.length >= 20;
+        emit(NewsLoadedState(
+          articles,
+          hasMoreData: hasMoreData,
+          currentPage: _currentPage,
+        ));
+        
+        // Cache the search results
+        await CacheService.instance.cacheNewsData(articles, page: _currentPage);
       } else {
         throw Exception('Failed to search news for: ${event.query}');
       }
@@ -301,7 +378,11 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
       // Fallback to mock search results
       AppLogger.logWarning('Using mock search results for: ${event.query}');
       final articles = _getMockSearchResults(event.query);
-      emit(NewsLoadedState(articles));
+      emit(NewsLoadedState(
+        articles,
+        hasMoreData: true,
+        currentPage: 1,
+      ));
     }
   }
   
@@ -310,6 +391,10 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     Emitter<NewsState> emit,
   ) async {
     AppLogger.logBloc('Refreshing news data...');
+    
+    // Clear cache and reset pagination
+    await CacheService.instance.clearNewsCache();
+    _currentPage = 1;
     
     // Refresh based on current state - search query takes priority
     if (_currentSearchQuery != null) {
@@ -322,6 +407,104 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
       } else {
         add(GetNewsByCategoryEvent(_currentCategory));
       }
+    }
+  }
+  
+  Future<void> _onLoadMoreNews(
+    LoadMoreNewsEvent event,
+    Emitter<NewsState> emit,
+  ) async {
+    final currentState = state;
+    if (currentState is! NewsLoadedState) return;
+    if (currentState.isSavedArticlesView) return; // No pagination for saved articles
+    if (!currentState.hasMoreData) return;
+    
+    AppLogger.logBloc('Loading more news data...');
+    emit(NewsLoadingMoreState(currentState.articles));
+    
+    _currentPage = currentState.currentPage + 1;
+    
+    try {
+      AppLogger.logNews('Attempting to fetch more news (page $_currentPage)...');
+      
+      // Load more based on current context
+      dynamic response;
+      if (_currentSearchQuery != null) {
+        response = await NetworkClient.instance.searchNews(
+          query: _currentSearchQuery!,
+          page: _currentPage,
+        );
+      } else {
+        response = await NetworkClient.instance.getTopHeadlines(
+          category: _currentCategory,
+          page: _currentPage,
+        );
+      }
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        AppLogger.logSuccess('More news received successfully');
+        
+        final newArticles = <NewsArticle>[];
+        final articlesData = data['articles'] as List;
+        
+        for (final articleData in articlesData) {
+          newArticles.add(NewsArticle(
+            title: articleData['title'] ?? 'No title',
+            description: articleData['description'] ?? 'No description',
+            url: articleData['url'] ?? '',
+            imageUrl: articleData['urlToImage'],
+            publishedAt: articleData['publishedAt'] ?? DateTime.now().toIso8601String(),
+            source: articleData['source']['name'] ?? 'Unknown',
+          ));
+        }
+        
+        final allArticles = [...currentState.articles, ...newArticles];
+        final hasMoreData = newArticles.length >= 20;
+        
+        emit(NewsLoadedState(
+          allArticles,
+          hasMoreData: hasMoreData,
+          currentPage: _currentPage,
+        ));
+        
+        // Cache the additional news data
+        await CacheService.instance.cacheNewsData(newArticles, page: _currentPage);
+        
+        AppLogger.logSuccess('Loaded ${newArticles.length} more articles');
+      } else {
+        throw Exception('Failed to load more news');
+      }
+    } catch (e) {
+      AppLogger.logError('Failed to load more news: $e');
+      
+      // Fallback to showing current articles with no more data
+      emit(NewsLoadedState(
+        currentState.articles,
+        hasMoreData: false,
+        currentPage: currentState.currentPage,
+      ));
+    }
+  }
+  
+  Future<void> _onLoadCachedNews(
+    LoadCachedNewsEvent event,
+    Emitter<NewsState> emit,
+  ) async {
+    AppLogger.logBloc('Loading cached news data...');
+    
+    final cachedArticles = CacheService.instance.getCachedNewsData();
+    if (cachedArticles.isNotEmpty) {
+      AppLogger.logSuccess('Cached news data loaded');
+      final cachedPage = CacheService.instance.getCurrentNewsPage();
+      emit(NewsLoadedState(
+        cachedArticles,
+        hasMoreData: true,
+        currentPage: cachedPage,
+      ));
+    } else {
+      AppLogger.logWarning('No cached news data available');
+      add(GetTopHeadlinesEvent());
     }
   }
   

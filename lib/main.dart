@@ -11,6 +11,7 @@ import 'core/network/network_client.dart';
 import 'core/utils/app_logger.dart';
 import 'core/services/saved_news_service.dart';
 import 'core/services/settings_service.dart';
+import 'core/services/cache_service.dart';
 import 'core/theme/theme_bloc.dart';
 
 void main() async {
@@ -33,6 +34,10 @@ void main() async {
   // Initialize settings service
   await SettingsService.instance.initialize();
   AppLogger.logSuccess('SettingsService initialized');
+  
+  // Initialize cache service
+  await CacheService.instance.initialize();
+  AppLogger.logSuccess('CacheService initialized');
   
   // Initialize Network Client (this will log API key status)
   NetworkClient.instance;

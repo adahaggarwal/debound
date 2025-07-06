@@ -2,9 +2,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../../../core/network/network_client.dart';
 import '../../../../core/utils/app_logger.dart';
-import '../../../../core/error/error_handler.dart';
 import '../../../../core/services/location_service.dart';
-import '../../data/models/weather_model.dart';
+import '../../../../core/services/cache_service.dart';
 
 // Events
 abstract class WeatherEvent extends Equatable {
@@ -73,6 +72,8 @@ class LoadNearbyCitiesEvent extends WeatherEvent {
 }
 
 class RefreshWeatherEvent extends WeatherEvent {}
+
+class LoadCachedWeatherEvent extends WeatherEvent {}
 
 // States
 abstract class WeatherState extends Equatable {
@@ -199,6 +200,7 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
     on<AddCityEvent>(_onAddCity);
     on<RemoveCityEvent>(_onRemoveCity);
     on<LoadNearbyCitiesEvent>(_onLoadNearbyCities);
+    on<LoadCachedWeatherEvent>(_onLoadCachedWeather);
   }
   
   Future<void> _onGetCurrentWeather(
@@ -247,6 +249,12 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
           currentLongitude: (data['coord']['lon'] ?? -0.1278).toDouble(),
         ));
         
+        // Cache the weather data
+        final currentState = state;
+        if (currentState is WeatherLoadedState) {
+          await CacheService.instance.cacheWeatherData(currentState);
+        }
+        
         // Load nearby cities after getting current weather
         add(LoadNearbyCitiesEvent(
           (data['coord']['lat'] ?? 51.5074).toDouble(),
@@ -257,6 +265,19 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
       }
     } catch (e) {
       AppLogger.logError('Failed to get current weather: $e');
+      
+      // Try to load cached data first
+      final cachedWeather = CacheService.instance.getCachedWeatherData();
+      if (cachedWeather != null) {
+        AppLogger.logWarning('Using cached weather data');
+        emit(cachedWeather);
+        
+        // Load nearby cities for cached location
+        if (cachedWeather.currentLatitude != null && cachedWeather.currentLongitude != null) {
+          add(LoadNearbyCitiesEvent(cachedWeather.currentLatitude!, cachedWeather.currentLongitude!));
+        }
+        return;
+      }
       
       // Fallback to mock data for UI testing
       AppLogger.logWarning('Using mock data for UI testing');
@@ -373,6 +394,12 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
           currentLongitude: event.longitude,
         ));
         
+        // Cache the weather data
+        final currentState = state;
+        if (currentState is WeatherLoadedState) {
+          await CacheService.instance.cacheWeatherData(currentState);
+        }
+        
         // Load nearby cities for the current location
         add(LoadNearbyCitiesEvent(event.latitude, event.longitude));
       } else {
@@ -470,7 +497,31 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
     Emitter<WeatherState> emit,
   ) async {
     AppLogger.logBloc('Refreshing weather data...');
+    
+    // Force refresh by clearing cache and getting new data
+    await CacheService.instance.clearWeatherCache();
     add(GetLocationWeatherEvent());
+  }
+  
+  Future<void> _onLoadCachedWeather(
+    LoadCachedWeatherEvent event,
+    Emitter<WeatherState> emit,
+  ) async {
+    AppLogger.logBloc('Loading cached weather data...');
+    
+    final cachedWeather = CacheService.instance.getCachedWeatherData();
+    if (cachedWeather != null) {
+      AppLogger.logSuccess('Cached weather data loaded');
+      emit(cachedWeather);
+      
+      // Load nearby cities for cached location
+      if (cachedWeather.currentLatitude != null && cachedWeather.currentLongitude != null) {
+        add(LoadNearbyCitiesEvent(cachedWeather.currentLatitude!, cachedWeather.currentLongitude!));
+      }
+    } else {
+      AppLogger.logWarning('No cached weather data available');
+      add(GetLocationWeatherEvent());
+    }
   }
   
   Future<void> _onTestApiKeys(
@@ -651,9 +702,7 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
   
   // Helper method to get nearby cities based on coordinates
   List<Map<String, dynamic>> _getNearbyCities(double latitude, double longitude) {
-    // This is a simplified approach - in a real app, you'd use a proper geocoding service
-    // or a database of cities with coordinates
-    
+   
     // Define major cities around the world with their coordinates
     final worldCities = [
       // Europe

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/news_bloc.dart';
+import 'package:skeletonizer/skeletonizer.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/utils/date_utils.dart' as app_date_utils;
-import '../../../../shared/widgets/loading_widget.dart';
 import '../../../../shared/widgets/error_widget.dart';
 
 class NewsPage extends StatefulWidget {
@@ -64,9 +64,11 @@ class _NewsPageState extends State<NewsPage> {
               child: BlocBuilder<NewsBloc, NewsState>(
                 builder: (context, state) {
                   if (state is NewsLoadingState) {
-                    return const LoadingWidget();
+                    return _buildSkeletonLoader();
                   } else if (state is NewsLoadedState) {
                     return _buildNewsContent(state);
+                  } else if (state is NewsLoadingMoreState) {
+                    return _buildNewsContentWithLoadingMore(state);
                   } else if (state is NewsErrorState) {
                     return CustomErrorWidget(
                       message: state.message,
@@ -269,10 +271,15 @@ class _NewsPageState extends State<NewsPage> {
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: state.articles.length,
+            itemCount: state.articles.length + (state.hasMoreData && !state.isSavedArticlesView ? 1 : 0),
             itemBuilder: (context, index) {
-              final article = state.articles[index];
-              return _buildNewsCard(article);
+              if (index < state.articles.length) {
+                final article = state.articles[index];
+                return _buildNewsCard(article);
+              } else {
+                // Load more button
+                return _buildLoadMoreButton();
+              }
             },
           ),
         ),
@@ -456,5 +463,182 @@ class _NewsPageState extends State<NewsPage> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Widget _buildSkeletonLoader() {
+    return Skeletonizer(
+
+      enabled: true,
+      child: Skeleton.leaf(
+        child: ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: 5,
+          itemBuilder: (context, index) {
+            return _buildSkeletonNewsCard();
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonNewsCard() {
+    return Card(
+      elevation: 8,
+      shadowColor: Colors.black.withOpacity(0.1),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            child: Container(
+              height: 200,
+              width: double.infinity,
+              color: Colors.grey[300],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text('Source Name'),
+                    ),
+                    const Spacer(),
+                    const Text('2 hours ago'),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'This is a placeholder title for the news article that will be loaded',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'This is a placeholder description for the news article content that will be loaded from the API.',
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton.icon(
+                      onPressed: null,
+                      icon: const Icon(Icons.share, size: 16),
+                      label: const Text('Share'),
+                    ),
+                    TextButton.icon(
+                      onPressed: null,
+                      icon: const Icon(Icons.bookmark_border, size: 16),
+                      label: const Text('Save'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNewsContentWithLoadingMore(NewsLoadingMoreState state) {
+    return Column(
+      children: [
+        if (state.existingArticles.isNotEmpty) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.newspaper,
+                  color: AppColors.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Loading more articles...',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ],
+            ),
+          ),
+        ],
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: state.existingArticles.length + 3, // +3 for skeleton loading items
+            itemBuilder: (context, index) {
+              if (index < state.existingArticles.length) {
+                final article = state.existingArticles[index];
+                return _buildNewsCard(article);
+              } else {
+                // Show skeleton loading for new items
+                return Skeletonizer(
+                  enabled: true,
+                  child: _buildSkeletonNewsCard(),
+                );
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoadMoreButton() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      child: ElevatedButton(
+        onPressed: () {
+          context.read<NewsBloc>().add(LoadMoreNewsEvent());
+        },
+        style: ElevatedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.expand_more),
+            const SizedBox(width: 8),
+            const Text('Load More Articles'),
+          ],
+        ),
+      ),
+    );
   }
 }
