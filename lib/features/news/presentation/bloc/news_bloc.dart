@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../../../core/network/network_client.dart';
 import '../../../../core/utils/app_logger.dart';
+import '../../../../core/services/saved_news_service.dart';
 
 // Events
 abstract class NewsEvent extends Equatable {
@@ -33,6 +34,26 @@ class SearchNewsEvent extends NewsEvent {
   List<Object> get props => [query];
 }
 
+class SaveArticleEvent extends NewsEvent {
+  final NewsArticle article;
+  
+  const SaveArticleEvent(this.article);
+  
+  @override
+  List<Object> get props => [article];
+}
+
+class RemoveSavedArticleEvent extends NewsEvent {
+  final String articleUrl;
+  
+  const RemoveSavedArticleEvent(this.articleUrl);
+  
+  @override
+  List<Object> get props => [articleUrl];
+}
+
+class GetSavedArticlesEvent extends NewsEvent {}
+
 class RefreshNewsEvent extends NewsEvent {}
 
 // States
@@ -49,11 +70,23 @@ class NewsLoadingState extends NewsState {}
 
 class NewsLoadedState extends NewsState {
   final List<NewsArticle> articles;
+  final bool isSavedArticlesView;
+  final DateTime timestamp;
   
-  const NewsLoadedState(this.articles);
+  NewsLoadedState(this.articles, {this.isSavedArticlesView = false}) 
+      : timestamp = DateTime.now();
   
   @override
-  List<Object> get props => [articles];
+  List<Object> get props => [articles, isSavedArticlesView, timestamp];
+}
+
+class NewsSavedState extends NewsState {
+  final String message;
+  
+  const NewsSavedState(this.message);
+  
+  @override
+  List<Object> get props => [message];
 }
 
 class NewsErrorState extends NewsState {
@@ -89,12 +122,25 @@ class NewsArticle extends Equatable {
 
 // BLoC
 class NewsBloc extends Bloc<NewsEvent, NewsState> {
+  String _currentCategory = 'general';
+  String? _currentSearchQuery;
+  
   NewsBloc() : super(NewsInitialState()) {
     on<GetTopHeadlinesEvent>(_onGetTopHeadlines);
     on<GetNewsByCategoryEvent>(_onGetNewsByCategory);
     on<SearchNewsEvent>(_onSearchNews);
     on<RefreshNewsEvent>(_onRefreshNews);
     on<TestNewsApiEvent>(_onTestNewsApi);
+    on<SaveArticleEvent>(_onSaveArticle);
+    on<RemoveSavedArticleEvent>(_onRemoveSavedArticle);
+    on<GetSavedArticlesEvent>(_onGetSavedArticles);
+    
+    // Initialize saved news service
+    _initializeSavedNewsService();
+  }
+  
+  Future<void> _initializeSavedNewsService() async {
+    await SavedNewsService.instance.initialize();
   }
   
   Future<void> _onGetTopHeadlines(
@@ -104,15 +150,22 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     AppLogger.logBloc('Getting top headlines...');
     emit(NewsLoadingState());
     
+    // Reset to default category when getting top headlines
+    _currentCategory = 'general';
+    _currentSearchQuery = null;
+    
     try {
       AppLogger.logNews('Attempting to fetch top headlines...');
       
       // Test with real API call
-      final response = await NetworkClient.instance.getTopHeadlines();
+      final response = await NetworkClient.instance.getTopHeadlines(
+        category: _currentCategory,
+      );
       
       if (response.statusCode == 200) {
         final data = response.data;
         AppLogger.logSuccess('Top headlines received successfully');
+        AppLogger.logNews('API Response: ${data.toString()}');
         AppLogger.logNews('Articles count: ${data['totalResults']}');
         
         final articles = <NewsArticle>[];
@@ -129,6 +182,7 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
           ));
         }
         
+        AppLogger.logSuccess('Parsed ${articles.length} articles');
         emit(NewsLoadedState(articles));
       } else {
         throw Exception('Failed to load news');
@@ -147,16 +201,53 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     GetNewsByCategoryEvent event,
     Emitter<NewsState> emit,
   ) async {
+    AppLogger.logBloc('Getting news for category: ${event.category}');
     emit(NewsLoadingState());
     
+    // Update current category and clear search query
+    _currentCategory = event.category;
+    _currentSearchQuery = null;
+    
     try {
-      // TODO: Implement actual API call
-      await Future.delayed(const Duration(seconds: 2));
+      AppLogger.logNews('Attempting to fetch news for category: ${event.category}');
       
-      final articles = _getMockArticles();
-      emit(NewsLoadedState(articles));
+      // Use real API call for category news
+      final response = await NetworkClient.instance.getTopHeadlines(
+        category: event.category,
+      );
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        AppLogger.logSuccess('Category news received successfully');
+        AppLogger.logNews('API Response: ${data.toString()}');
+        AppLogger.logNews('Articles count for ${event.category}: ${data['totalResults']}');
+        
+        final articles = <NewsArticle>[];
+        final articlesData = data['articles'] as List;
+        
+        for (final articleData in articlesData) {
+          articles.add(NewsArticle(
+            title: articleData['title'] ?? 'No title',
+            description: articleData['description'] ?? 'No description',
+            url: articleData['url'] ?? '',
+            imageUrl: articleData['urlToImage'],
+            publishedAt: articleData['publishedAt'] ?? DateTime.now().toIso8601String(),
+            source: articleData['source']['name'] ?? 'Unknown',
+          ));
+        }
+        
+        AppLogger.logSuccess('Parsed ${articles.length} articles for category: ${event.category}');
+        emit(NewsLoadedState(articles));
+      } else {
+        throw Exception('Failed to load news for category: ${event.category}');
+      }
     } catch (e) {
-      emit(NewsErrorState(e.toString()));
+      AppLogger.logError('Failed to get news for category ${event.category}: $e');
+      
+      // Fallback to mock data with category context
+      AppLogger.logWarning('Using mock data for category: ${event.category}');
+      final articles = _getMockArticlesForCategory(event.category);
+      emit(NewsLoadedState(articles));
     }
   }
   
@@ -164,16 +255,53 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     SearchNewsEvent event,
     Emitter<NewsState> emit,
   ) async {
+    AppLogger.logBloc('Searching news for query: ${event.query}');
     emit(NewsLoadingState());
     
+    // Update search query and clear category
+    _currentSearchQuery = event.query;
+    _currentCategory = 'general'; // Reset to general for search
+    
     try {
-      // TODO: Implement actual API call
-      await Future.delayed(const Duration(seconds: 2));
+      AppLogger.logNews('Attempting to search news for: ${event.query}');
       
-      final articles = _getMockArticles();
-      emit(NewsLoadedState(articles));
+      // Use real API call for search
+      final response = await NetworkClient.instance.searchNews(
+        query: event.query,
+      );
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        AppLogger.logSuccess('Search results received successfully');
+        AppLogger.logNews('API Response: ${data.toString()}');
+        AppLogger.logNews('Search results count for "${event.query}": ${data['totalResults']}');
+        
+        final articles = <NewsArticle>[];
+        final articlesData = data['articles'] as List;
+        
+        for (final articleData in articlesData) {
+          articles.add(NewsArticle(
+            title: articleData['title'] ?? 'No title',
+            description: articleData['description'] ?? 'No description',
+            url: articleData['url'] ?? '',
+            imageUrl: articleData['urlToImage'],
+            publishedAt: articleData['publishedAt'] ?? DateTime.now().toIso8601String(),
+            source: articleData['source']['name'] ?? 'Unknown',
+          ));
+        }
+        
+        AppLogger.logSuccess('Parsed ${articles.length} search results for: ${event.query}');
+        emit(NewsLoadedState(articles));
+      } else {
+        throw Exception('Failed to search news for: ${event.query}');
+      }
     } catch (e) {
-      emit(NewsErrorState(e.toString()));
+      AppLogger.logError('Failed to search news for "${event.query}": $e');
+      
+      // Fallback to mock search results
+      AppLogger.logWarning('Using mock search results for: ${event.query}');
+      final articles = _getMockSearchResults(event.query);
+      emit(NewsLoadedState(articles));
     }
   }
   
@@ -182,7 +310,19 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
     Emitter<NewsState> emit,
   ) async {
     AppLogger.logBloc('Refreshing news data...');
-    add(GetTopHeadlinesEvent());
+    
+    // Refresh based on current state - search query takes priority
+    if (_currentSearchQuery != null) {
+      AppLogger.logInfo('Refreshing search results for: $_currentSearchQuery');
+      add(SearchNewsEvent(_currentSearchQuery!));
+    } else {
+      AppLogger.logInfo('Refreshing category news for: $_currentCategory');
+      if (_currentCategory == 'general') {
+        add(GetTopHeadlinesEvent());
+      } else {
+        add(GetNewsByCategoryEvent(_currentCategory));
+      }
+    }
   }
   
   Future<void> _onTestNewsApi(
@@ -200,6 +340,94 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
       AppLogger.logError('News API test failed: $e');
       emit(NewsErrorState('News API test failed: $e'));
     }
+  }
+  
+  Future<void> _onSaveArticle(
+    SaveArticleEvent event,
+    Emitter<NewsState> emit,
+  ) async {
+    AppLogger.logBloc('Saving article: ${event.article.title}');
+    
+    try {
+      final success = await SavedNewsService.instance.saveArticle(event.article);
+      if (success) {
+        AppLogger.logSuccess('Article saved successfully');
+        
+        // Force a rebuild by emitting a new state with timestamp
+        final currentState = state;
+        if (currentState is NewsLoadedState) {
+          emit(NewsLoadedState(
+            currentState.articles,
+            isSavedArticlesView: currentState.isSavedArticlesView,
+          ));
+        }
+      } else {
+        AppLogger.logError('Failed to save article');
+        emit(NewsErrorState('Failed to save article'));
+      }
+    } catch (e) {
+      AppLogger.logError('Error saving article: $e');
+      emit(NewsErrorState('Error saving article: $e'));
+    }
+  }
+  
+  Future<void> _onRemoveSavedArticle(
+    RemoveSavedArticleEvent event,
+    Emitter<NewsState> emit,
+  ) async {
+    AppLogger.logBloc('Removing saved article: ${event.articleUrl}');
+    
+    try {
+      final success = await SavedNewsService.instance.removeSavedArticle(event.articleUrl);
+      if (success) {
+        AppLogger.logSuccess('Article removed from saved');
+        
+        // If currently viewing saved articles, refresh the list
+        final currentState = state;
+        if (currentState is NewsLoadedState && currentState.isSavedArticlesView) {
+          add(GetSavedArticlesEvent());
+        } else if (currentState is NewsLoadedState) {
+          // Force a rebuild by emitting a new state with timestamp
+          emit(NewsLoadedState(
+            currentState.articles,
+            isSavedArticlesView: currentState.isSavedArticlesView,
+          ));
+        }
+      } else {
+        AppLogger.logError('Failed to remove saved article');
+        emit(NewsErrorState('Failed to remove article'));
+      }
+    } catch (e) {
+      AppLogger.logError('Error removing saved article: $e');
+      emit(NewsErrorState('Error removing article: $e'));
+    }
+  }
+  
+  Future<void> _onGetSavedArticles(
+    GetSavedArticlesEvent event,
+    Emitter<NewsState> emit,
+  ) async {
+    AppLogger.logBloc('Getting saved articles...');
+    emit(NewsLoadingState());
+    
+    try {
+      final savedArticles = SavedNewsService.instance.getSavedArticles();
+      AppLogger.logSuccess('Retrieved ${savedArticles.length} saved articles');
+      emit(NewsLoadedState(savedArticles, isSavedArticlesView: true));
+    } catch (e) {
+      AppLogger.logError('Error getting saved articles: $e');
+      emit(NewsErrorState('Error loading saved articles: $e'));
+    }
+  }
+  
+  /// Check if an article is saved
+  bool isArticleSaved(String articleUrl) {
+    return SavedNewsService.instance.isArticleSaved(articleUrl);
+  }
+  
+  /// Get saved articles count
+  int getSavedArticlesCount() {
+    return SavedNewsService.instance.getSavedArticlesCount();
   }
   
   List<NewsArticle> _getMockArticles() {
@@ -227,6 +455,110 @@ class NewsBloc extends Bloc<NewsEvent, NewsState> {
         imageUrl: 'https://via.placeholder.com/300x200',
         publishedAt: '2025-01-01T10:00:00Z',
         source: 'Sports Network',
+      ),
+    ];
+  }
+  
+  List<NewsArticle> _getMockArticlesForCategory(String category) {
+    switch (category.toLowerCase()) {
+      case 'technology':
+        return [
+          const NewsArticle(
+            title: 'AI Revolution: New Breakthrough Announced',
+            description: 'Scientists unveil revolutionary AI technology that could change the world.',
+            url: 'https://example.com/tech1',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T15:00:00Z',
+            source: 'TechCrunch',
+          ),
+          const NewsArticle(
+            title: 'Smartphone Innovation: Foldable Display Tech',
+            description: 'New foldable display technology promises better durability and performance.',
+            url: 'https://example.com/tech2',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T14:00:00Z',
+            source: 'The Verge',
+          ),
+        ];
+      case 'sports':
+        return [
+          const NewsArticle(
+            title: 'World Cup Qualifiers: Exciting Matches Ahead',
+            description: 'Teams prepare for crucial World Cup qualifying matches this weekend.',
+            url: 'https://example.com/sports1',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T13:00:00Z',
+            source: 'ESPN',
+          ),
+          const NewsArticle(
+            title: 'Olympic Training: Athletes Gear Up',
+            description: 'Olympic athletes intensify training as games approach.',
+            url: 'https://example.com/sports2',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T12:30:00Z',
+            source: 'Sports Illustrated',
+          ),
+        ];
+      case 'business':
+        return [
+          const NewsArticle(
+            title: 'Stock Market Surge: Tech Stocks Lead',
+            description: 'Technology stocks continue to drive market growth in early trading.',
+            url: 'https://example.com/business1',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T09:00:00Z',
+            source: 'Wall Street Journal',
+          ),
+          const NewsArticle(
+            title: 'Cryptocurrency Update: Bitcoin Reaches New High',
+            description: 'Bitcoin and other cryptocurrencies see significant gains this week.',
+            url: 'https://example.com/business2',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T08:30:00Z',
+            source: 'Financial Times',
+          ),
+        ];
+      case 'health':
+        return [
+          const NewsArticle(
+            title: 'Medical Breakthrough: New Treatment Discovered',
+            description: 'Researchers discover promising new treatment for common condition.',
+            url: 'https://example.com/health1',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T16:00:00Z',
+            source: 'Medical News',
+          ),
+          const NewsArticle(
+            title: 'Wellness Trend: Mental Health Awareness',
+            description: 'Growing awareness about mental health leads to new support programs.',
+            url: 'https://example.com/health2',
+            imageUrl: 'https://via.placeholder.com/300x200',
+            publishedAt: '2025-01-01T15:30:00Z',
+            source: 'Health Magazine',
+          ),
+        ];
+      default:
+        return _getMockArticles(); // Return general articles for other categories
+    }
+  }
+  
+  List<NewsArticle> _getMockSearchResults(String query) {
+    return [
+      NewsArticle(
+        title: 'Search Result: $query in Headlines',
+        description: 'This is a mock search result for the query "$query". Real search results would be more relevant.',
+        url: 'https://example.com/search1',
+        imageUrl: 'https://via.placeholder.com/300x200',
+        publishedAt: DateTime.now().toIso8601String(),
+        source: 'Search Results',
+      ),
+      NewsArticle(
+        title: 'Latest News About $query',
+        description: 'Another mock search result showing content related to "$query". API would return actual matching articles.',
+        url: 'https://example.com/search2',
+        imageUrl: 'https://via.placeholder.com/300x200',
+        publishedAt: DateTime.now().subtract(const Duration(hours: 1)).toIso8601String(),
+        source: 'News Search',
       ),
     ];
   }
