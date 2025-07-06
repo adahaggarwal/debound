@@ -35,6 +35,7 @@ dependencies:
   geocoding: ^2.1.1
   permission_handler: ^11.0.1
   skeletonizer: ^1.4.3
+  share_plus: ^10.1.2
   
 dev_dependencies:
   flutter_test:

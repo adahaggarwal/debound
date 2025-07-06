@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/news_bloc.dart';
 import 'package:skeletonizer/skeletonizer.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/utils/date_utils.dart' as app_date_utils;
+import '../../../../core/utils/app_logger.dart';
 import '../../../../shared/widgets/error_widget.dart';
 
 class NewsPage extends StatefulWidget {
@@ -35,7 +37,19 @@ class _NewsPageState extends State<NewsPage> {
             },
             tooltip: 'Saved Articles',
           ),
-          
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              // Focus on search bar
+              FocusScope.of(context).requestFocus(FocusNode());
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Use the search bar below to search news'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
         ],
         flexibleSpace: Container(
           decoration: const BoxDecoration(
@@ -87,6 +101,27 @@ class _NewsPageState extends State<NewsPage> {
         ],
       ),
     );
+  }
+
+  void _shareArticle(NewsArticle article) async {
+    try {
+      final shareText = '${article.title}\n\n${article.description}\n\nRead more: ${article.url}\n\nShared via Debound News App';
+      
+      await Share.share(
+        shareText,
+        subject: article.title,
+      );
+      
+      AppLogger.logInfo('Article shared: ${article.title}');
+    } catch (e) {
+      AppLogger.logError('Failed to share article: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to share article'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Widget _buildCategoryTabs() {
@@ -398,10 +433,7 @@ class _NewsPageState extends State<NewsPage> {
                     children: [
                       TextButton.icon(
                         onPressed: () {
-                          // TODO: Share article
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Share feature coming soon!')),
-                          );
+                          _shareArticle(article);
                         },
                         icon: const Icon(Icons.share, size: 16),
                         label: const Text('Share'),

@@ -279,8 +279,8 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
         return;
       }
       
-      // Fallback to mock data for UI testing
-      AppLogger.logWarning('Using mock data for UI testing');
+      // Only use mock data if no cache is available
+      AppLogger.logWarning('No cached data available, using mock data');
       emit(WeatherLoadedState(
         city: 'London (Mock)',
         temperature: 22.5,
@@ -339,6 +339,20 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
       ));
     } catch (e) {
       AppLogger.logError('Failed to get location weather: $e');
+      
+      // Try to load cached data first
+      final cachedWeather = CacheService.instance.getCachedWeatherData();
+      if (cachedWeather != null) {
+        AppLogger.logWarning('Using cached weather data for location');
+        emit(cachedWeather);
+        
+        // Load nearby cities for cached location
+        if (cachedWeather.currentLatitude != null && cachedWeather.currentLongitude != null) {
+          add(LoadNearbyCitiesEvent(cachedWeather.currentLatitude!, cachedWeather.currentLongitude!));
+        }
+        return;
+      }
+      
       emit(WeatherErrorState('Failed to get location: $e'));
     }
   }
