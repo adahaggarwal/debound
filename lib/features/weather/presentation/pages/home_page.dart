@@ -1,11 +1,12 @@
 import 'package:debound/core/constants/app_colors.dart';
+import 'package:debound/core/services/cache_service.dart';
 import 'package:debound/features/news/presentation/bloc/news_bloc.dart';
 import 'package:debound/features/news/presentation/pages/news_page.dart';
 import 'package:debound/features/weather/presentation/bloc/weather_bloc.dart';
 import 'package:debound/features/weather/presentation/pages/weather_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../core/constants/app_colors.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 
 class HomePage extends StatefulWidget {
@@ -30,12 +31,29 @@ class _HomePageState extends State<HomePage> {
     _loadInitialData();
   }
 
-  void _loadInitialData() {
-    // Load location-based weather data
-    context.read<WeatherBloc>().add(GetLocationWeatherEvent());
+  void _loadInitialData() async {
+    // Check internet connectivity
+    final connectivityResult = await Connectivity().checkConnectivity();
+    final hasInternet = connectivityResult != ConnectivityResult.none;
     
-    // Load news data
-    context.read<NewsBloc>().add(GetTopHeadlinesEvent());
+    if (hasInternet) {
+      // Load fresh data when internet is available
+      context.read<WeatherBloc>().add(GetLocationWeatherEvent());
+      context.read<NewsBloc>().add(GetTopHeadlinesEvent());
+    } else {
+      // Load cached data when offline
+      if (CacheService.instance.hasWeatherCache()) {
+        context.read<WeatherBloc>().add(LoadCachedWeatherEvent());
+      } else {
+        context.read<WeatherBloc>().add(GetLocationWeatherEvent());
+      }
+      
+      if (CacheService.instance.hasNewsCache()) {
+        context.read<NewsBloc>().add(LoadCachedNewsEvent());
+      } else {
+        context.read<NewsBloc>().add(GetTopHeadlinesEvent());
+      }
+    }
   }
 
   @override
