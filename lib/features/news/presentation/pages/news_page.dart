@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/news_bloc.dart';
 import 'package:skeletonizer/skeletonizer.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:flutter/services.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/utils/date_utils.dart' as app_date_utils;
@@ -107,21 +107,106 @@ class _NewsPageState extends State<NewsPage> {
     try {
       final shareText = '${article.title}\n\n${article.description}\n\nRead more: ${article.url}\n\nShared via Debound News App';
       
-      await Share.share(
-        shareText,
-        subject: article.title,
-      );
+      // Copy to clipboard as a sharing method
+      await Clipboard.setData(ClipboardData(text: shareText));
       
-      AppLogger.logInfo('Article shared: ${article.title}');
+      // Show share dialog
+      _showShareDialog(article, shareText);
+      
+      AppLogger.logInfo('Article prepared for sharing: ${article.title}');
     } catch (e) {
-      AppLogger.logError('Failed to share article: $e');
+      AppLogger.logError('Failed to prepare article for sharing: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Failed to share article'),
+          content: Text('Failed to prepare article for sharing'),
           backgroundColor: Colors.red,
         ),
       );
     }
+  }
+
+  void _showShareDialog(NewsArticle article, String shareText) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.share, color: AppColors.primary),
+              const SizedBox(width: 8),
+              const Expanded(child: Text('Share Article')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                article.title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Article content has been copied to clipboard. You can now paste it in any app to share.',
+                style: TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.content_copy, size: 16, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Copied to clipboard',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('Close'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                // Copy again if needed
+                await Clipboard.setData(ClipboardData(text: shareText));
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Article copied to clipboard again!'),
+                    backgroundColor: AppColors.success,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+              child: const Text('Copy Again'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildCategoryTabs() {
