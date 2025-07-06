@@ -4,6 +4,7 @@ import '../../../../core/network/network_client.dart';
 import '../../../../core/utils/app_logger.dart';
 import '../../../../core/services/location_service.dart';
 import '../../../../core/services/cache_service.dart';
+import '../../../../core/services/cities_service.dart';
 
 // Events
 abstract class WeatherEvent extends Equatable {
@@ -70,6 +71,8 @@ class LoadNearbyCitiesEvent extends WeatherEvent {
   @override
   List<Object> get props => [latitude, longitude];
 }
+
+class LoadSavedCitiesEvent extends WeatherEvent {}
 
 class RefreshWeatherEvent extends WeatherEvent {}
 
@@ -201,6 +204,7 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
     on<RemoveCityEvent>(_onRemoveCity);
     on<LoadNearbyCitiesEvent>(_onLoadNearbyCities);
     on<LoadCachedWeatherEvent>(_onLoadCachedWeather);
+    on<LoadSavedCitiesEvent>(_onLoadSavedCities);
   }
   
   Future<void> _onGetCurrentWeather(
@@ -588,6 +592,9 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
           city.cityName.toLowerCase() == newCityWeather.cityName.toLowerCase());
         
         if (!cityExists) {
+          // Save to persistent storage
+          await CitiesService.instance.addCity(newCityWeather.cityName);
+          
           final updatedCities = [...existingCities, newCityWeather];
           
           emit(WeatherLoadedState(
@@ -626,6 +633,9 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
     final currentState = state;
     if (currentState is! WeatherLoadedState) return;
     
+    // Remove from persistent storage
+    await CitiesService.instance.removeCity(event.cityName);
+    
     final updatedCities = currentState.otherCities
         .where((city) => city.cityName.toLowerCase() != event.cityName.toLowerCase())
         .toList();
@@ -646,6 +656,78 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
     ));
     
     AppLogger.logSuccess('City ${event.cityName} removed successfully');
+  }
+  
+  Future<void> _onLoadSavedCities(
+    LoadSavedCitiesEvent event,
+    Emitter<WeatherState> emit,
+  ) async {
+    AppLogger.logBloc('Loading saved cities from persistent storage');
+    
+    final currentState = state;
+    if (currentState is! WeatherLoadedState) return;
+    
+    try {
+      final savedCityNames = await CitiesService.instance.getSavedCities();
+      
+      if (savedCityNames.isEmpty) {
+        AppLogger.logInfo('No saved cities found');
+        return;
+      }
+      
+      AppLogger.logInfo('Loading weather for ${savedCityNames.length} saved cities');
+      
+      // Fetch weather for each saved city
+      final List<CityWeather> savedCityWeatherList = [];
+      
+      for (final cityName in savedCityNames) {
+        try {
+          final response = await NetworkClient.instance.getWeatherData(cityName);
+          
+          if (response.statusCode == 200) {
+            final data = response.data;
+            
+            final cityWeather = CityWeather(
+              cityName: data['name'] ?? cityName,
+              temperature: (data['main']['temp'] ?? 0.0).toDouble(),
+              condition: data['weather'][0]['main'] ?? 'Clear',
+              description: data['weather'][0]['description'] ?? 'Clear sky',
+              latitude: (data['coord']['lat'] ?? 0.0).toDouble(),
+              longitude: (data['coord']['lon'] ?? 0.0).toDouble(),
+              isNearby: false,
+            );
+            
+            savedCityWeatherList.add(cityWeather);
+            AppLogger.logSuccess('Weather loaded for saved city: ${cityWeather.cityName}');
+          }
+        } catch (e) {
+          AppLogger.logWarning('Failed to fetch weather for saved city $cityName: $e');
+        }
+      }
+      
+      // Combine saved cities with nearby cities
+      final nearbyCities = currentState.otherCities.where((city) => city.isNearby).toList();
+      final allCities = [...nearbyCities, ...savedCityWeatherList];
+      
+      emit(WeatherLoadedState(
+        city: currentState.city,
+        temperature: currentState.temperature,
+        condition: currentState.condition,
+        description: currentState.description,
+        humidity: currentState.humidity,
+        pressure: currentState.pressure,
+        visibility: currentState.visibility,
+        windSpeed: currentState.windSpeed,
+        forecast: currentState.forecast,
+        otherCities: allCities,
+        currentLatitude: currentState.currentLatitude,
+        currentLongitude: currentState.currentLongitude,
+      ));
+      
+      AppLogger.logSuccess('Loaded ${savedCityWeatherList.length} saved cities');
+    } catch (e) {
+      AppLogger.logError('Failed to load saved cities: $e');
+    }
   }
   
   Future<void> _onLoadNearbyCities(
@@ -709,6 +791,9 @@ class WeatherBloc extends Bloc<WeatherEvent, WeatherState> {
       ));
       
       AppLogger.logSuccess('Loaded ${cityWeatherList.length} nearby cities');
+      
+      // After loading nearby cities, also load saved cities
+      add(LoadSavedCitiesEvent());
     } catch (e) {
       AppLogger.logError('Failed to load nearby cities: $e');
     }

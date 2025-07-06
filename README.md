@@ -6,15 +6,15 @@ A Flutter application that provides weather information and news updates in a cl
 
 ### Weather Section
 - **Current Weather**: Location-based weather display with animated weather icons
-- **5-Day Forecast**: Detailed weather forecast with hourly breakdown
+- **5-Day Forecast**: Detailed weather forecast 
 - **Multiple Cities**: Compare weather across different cities
-- **Weather Alerts**: Push notifications for weather updates
+<!-- - **Weather Alerts**: Push notifications for weather updates -->
 - **Pull-to-Refresh**: Update weather data with a simple pull gesture
-- **Offline Mode**: Cached weather data for offline viewing
+- **Offline Mode**: Cached weather data and news for offline viewing
 
 ### News Section
 - **Top Headlines**: Latest news with category filtering (Business, Tech, Sports, etc.)
-- **Article Search**: Search functionality with debounced input
+- **Article Search**: Search functionality 
 - **Bookmark Articles**: Save articles for offline reading
 - **Share Articles**: Share interesting articles with others
 - **Category Filters**: Filter news by categories
