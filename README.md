@@ -74,9 +74,6 @@ The app uses the following environment variables:
 - `WEATHER_API_KEY`: Your OpenWeatherMap API key
 - `NEWS_API_KEY`: Your NewsAPI key
 
-**Important**: Never commit your `.env` file to version control. It's already added to `.gitignore`.
-
-## API Keys
 
 ### OpenWeatherMap API
 - **URL**: https://openweathermap.org/api
@@ -87,14 +84,6 @@ The app uses the following environment variables:
 - **URL**: https://newsapi.org/
 - **Free Tier**: 1,000 requests/day
 - **Features Used**: Top headlines, everything endpoint
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ## License
 
